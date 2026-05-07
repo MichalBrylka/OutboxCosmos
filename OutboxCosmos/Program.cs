@@ -4,6 +4,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OutboxCosmos;
+using Polly;
+using Polly.Registry;
+using Polly.Retry;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Channels;
@@ -40,6 +43,24 @@ builder.Services.AddSingleton<IOutboxRepository, CosmosOutboxRepository>();
 builder.Services.AddSingleton<IOutboxMessageHandler, EmailHandler>();
 builder.Services.AddSingleton<IOutboxMessageHandler, SmsHandler>();
 builder.Services.AddSingleton<IOutboxMessageHandler, AuditHandler>();
+builder.Services.AddSingleton<IPolicyRegistry<string>>(sp =>
+{
+    var logger = sp.GetRequiredService<ILogger<IRetryPolicy>>();
+
+    return new PolicyRegistry
+    {
+        {
+            "OutboxPolicy", Policy
+                .Handle<Exception>()
+                .WaitAndRetryAsync(
+                    sp.GetRequiredService<IOptions<RetryOptions>>().Value.MaxAttempts,
+                    retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
+                    (ex, _, retryCount, _) => logger.LogWarning("Retry {RetryCount} due to: {Message}", retryCount, ex.Message)
+                    )
+        }
+    };
+});
+
 
 // Channel for in-process dispatching
 builder.Services.AddSingleton(_ =>

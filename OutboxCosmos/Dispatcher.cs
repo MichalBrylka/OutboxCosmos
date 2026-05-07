@@ -2,47 +2,27 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
-using Polly.Retry;
+using Polly.Registry;
 using System.Threading.Channels;
 
 namespace OutboxCosmos;
 
-public class OutboxDispatcherWorker : BackgroundService
+public class OutboxDispatcherWorker(IOutboxRepository repository, RoutingHandler routingHandler, IClock clock, Channel<OutboxMessageTargetDocument> channel,
+    IOptions<RetryOptions> retryOptions, IPolicyRegistry<string> policyRegistry, ILogger<OutboxDispatcherWorker> logger) : BackgroundService
 {
-    private readonly IOutboxRepository _repository;
-    private readonly RoutingHandler _routingHandler;
-    private readonly IClock _clock;
-    private readonly Channel<OutboxMessageTargetDocument> _channel;
-    private readonly AsyncRetryPolicy _retryPolicy;
-    private readonly ILogger<OutboxDispatcherWorker> _logger;
-    private readonly RetryOptions _retryOptions;
+    private readonly IAsyncPolicy _retryPolicy = policyRegistry.Get<IAsyncPolicy>("OutboxPolicy");
+    private readonly ILogger<OutboxDispatcherWorker> _logger = logger;
+    private readonly RetryOptions _retryOptions = retryOptions.Value;
 
-    public OutboxDispatcherWorker(IOutboxRepository repository, RoutingHandler routingHandler, IClock clock, Channel<OutboxMessageTargetDocument> channel, IOptions<RetryOptions> retryOptions, ILogger<OutboxDispatcherWorker> logger)
-    {
-        _repository = repository;
-        _routingHandler = routingHandler;
-        _clock = clock;
-        _channel = channel;
-        _retryOptions = retryOptions.Value;
-        _logger = logger;
-
-        // Resiliency with Polly
-        _retryPolicy = Policy
-            .Handle<Exception>()
-            .WaitAndRetryAsync(_retryOptions.MaxAttempts,
-                retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
-                (ex, _, retryCount, _) =>
-                    _logger.LogWarning("Retry {RetryCount} due to: {Message}", retryCount, ex.Message));
-    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Outbox Dispatcher Started. Monitoring channel...");
 
         // ReadAllAsync keeps the loop alive until the channel is closed
-        await foreach (var targetDocument in _channel.Reader.ReadAllAsync(stoppingToken))
+        await foreach (var targetDocument in channel.Reader.ReadAllAsync(stoppingToken))
         {
-            var handler = _routingHandler.GetHandlerForTarget(targetDocument.TargetName);
+            var handler = routingHandler.GetHandlerForTarget(targetDocument.TargetName);
 
             try
             {
@@ -52,7 +32,7 @@ public class OutboxDispatcherWorker : BackgroundService
                     continue;
                 }
 
-                // 2. Execute with Polly Resiliency
+                // Execute with Polly Resiliency
                 await _retryPolicy.ExecuteAsync(async () =>
                 {
                     _logger.LogInformation("Attempting to publish {TargetName} for message {MessageId}...", targetDocument.TargetName, targetDocument.MessageId);
@@ -62,16 +42,16 @@ public class OutboxDispatcherWorker : BackgroundService
                     var successTarget = targetDocument with
                     {
                         Status = OutboxMessageTargetStatus.Dispatched,
-                        DispatchedAtUtc = _clock.UtcNowOffset,
+                        DispatchedAtUtc = clock.UtcNowOffset,
                         LastError = null // Clear any previous errors
                     };
-                    await _repository.UpdateTargetStatusAsync(successTarget);
+                    await repository.UpdateTargetStatusAsync(successTarget);
                     _logger.LogInformation("Successfully dispatched {TargetId}: {MessageId}", targetDocument.Id, targetDocument.MessageId);
                 });
             }
             catch (Exception ex)
             {
-                // 4. Dead Letter: If Polly retries are exhausted, it throws here
+                // Dead Letter: If Polly retries are exhausted, it throws here
                 _logger.LogError("Permanent failure for target {TargetId} after retries. Moving to DeadLetter. Error: {ExMessage}", targetDocument.Id, ex.Message);
 
                 var deadTarget = targetDocument with
@@ -83,7 +63,7 @@ public class OutboxDispatcherWorker : BackgroundService
 
                 try
                 {
-                    await _repository.UpdateTargetStatusAsync(deadTarget);
+                    await repository.UpdateTargetStatusAsync(deadTarget);
                 }
                 catch (Exception dbEx)
                 {
