@@ -1,15 +1,10 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
+﻿using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Threading.Channels;
 
 namespace OutboxCosmos;
 
-public class OutboxRecoveryWorker(
-    IServiceProvider serviceProvider,
-    Channel<OutboxMessageTarget> channel,
-    ILogger<OutboxRecoveryWorker> logger)
-    : BackgroundService
+public class OutboxRecoveryWorker(IOutboxRepository repository, Channel<OutboxMessageTarget> channel, ILogger<OutboxRecoveryWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -18,17 +13,10 @@ public class OutboxRecoveryWorker(
             // 3. Periodically look for Pending messages
             logger.LogInformation("Recovery worker scanning for pending messages...");
 
-            using (var scope = serviceProvider.CreateScope())
-            {
-                var repo = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
-                var pending = await repo.GetPendingTargetsAsync();
+            var pending = await repository.GetPendingTargetsAsync();
 
-                foreach (var target in pending)
-                {
-                    // Re-enqueue into channel if not already being processed
-                    await channel.Writer.WriteAsync(target, stoppingToken);
-                }
-            }
+            foreach (var target in pending)
+                await channel.Writer.WriteAsync(target, stoppingToken); // Re-enqueue into channel if not already being processed
 
             await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
         }

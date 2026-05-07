@@ -1,5 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
+﻿using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
@@ -10,27 +9,28 @@ namespace OutboxCosmos;
 
 public class OutboxDispatcherWorker : BackgroundService
 {
-    private readonly Channel<OutboxMessageTarget> _channel;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IOutboxRepository _repository;
+    private readonly IEnumerable<IOutboxMessageHandler> _handlers;
+    private readonly Channel<OutboxMessageTarget> _channel;    
     private readonly AsyncRetryPolicy _retryPolicy;
     private readonly ILogger<OutboxDispatcherWorker> _logger;
     private readonly RetryOptions _retryOptions;
 
-    public OutboxDispatcherWorker(Channel<OutboxMessageTarget> channel, IServiceProvider serviceProvider, IOptions<RetryOptions> retryOptions, ILogger<OutboxDispatcherWorker> logger)
+    public OutboxDispatcherWorker(IOutboxRepository repository, IEnumerable<IOutboxMessageHandler> handlers, Channel<OutboxMessageTarget> channel, IOptions<RetryOptions> retryOptions, ILogger<OutboxDispatcherWorker> logger)
     {
+        _repository = repository;
+        _handlers = handlers;
         _channel = channel;
-        _serviceProvider = serviceProvider;
-        _logger = logger;
         _retryOptions = retryOptions.Value;
+        _logger = logger;
 
-
-        // 3. Resiliency with Polly
+        // Resiliency with Polly
         _retryPolicy = Policy
             .Handle<Exception>()
             .WaitAndRetryAsync(_retryOptions.MaxAttempts,
                 retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
                 (ex, _, retryCount, _) =>
-                    _logger.LogWarning("Retry {RetryCount} due to: {Message}", retryCount, ex.Message));
+                    _logger.LogWarning("Retry {RetryCount} due to: {Message}", retryCount, ex.Message));        
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -40,16 +40,12 @@ public class OutboxDispatcherWorker : BackgroundService
         // ReadAllAsync keeps the loop alive until the channel is closed
         await foreach (var target in _channel.Reader.ReadAllAsync(stoppingToken))
         {
-            using var scope = _serviceProvider.CreateScope();
-            var repo = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
-            var handlers = scope.ServiceProvider.GetServices<IOutboxMessageHandler>();
-
-            var handler = handlers.FirstOrDefault(h => h.Name == target.TargetName);
+            var handler = _handlers.FirstOrDefault(h => h.Name == target.TargetName);
 
             try
             {
                 // 1. Fetch the actual message payload
-                var message = await repo.GetMessageAsync(target.MessageId);
+                var message = await _repository.GetMessageAsync(target.MessageId);
                 if (message == null || handler == null)
                 {
                     _logger.LogWarning("Skipping target {TargetId}: Message or Handler not found.", target.Id);
@@ -70,7 +66,7 @@ public class OutboxDispatcherWorker : BackgroundService
                         DispatchedAtUtc = DateTimeOffset.UtcNow,
                         LastError = null // Clear any previous errors
                     };
-                    await repo.UpdateTargetStatusAsync(successTarget);
+                    await _repository.UpdateTargetStatusAsync(successTarget);
                     _logger.LogInformation("Successfully dispatched {TargetId}: {MessageId}", target.Id, target.MessageId);
                 });
             }
@@ -88,7 +84,7 @@ public class OutboxDispatcherWorker : BackgroundService
 
                 try
                 {
-                    await repo.UpdateTargetStatusAsync(deadTarget);
+                    await _repository.UpdateTargetStatusAsync(deadTarget);
                 }
                 catch (Exception dbEx)
                 {
