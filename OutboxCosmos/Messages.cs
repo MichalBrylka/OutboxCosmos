@@ -1,4 +1,4 @@
-﻿namespace PolymorphSerdes;
+﻿namespace OutboxCosmos;
 
 using System.Text.Json.Serialization;
 
@@ -34,3 +34,6 @@ public record OutboxMessageTarget(
     string? ReplyRequestedBy
     );
 public enum OutboxMessageTargetStatus { Pending, Dispatched, DeadLettered, ReplyRequested }
+
+
+

@@ -3,7 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Xunit.Abstractions;
 
-namespace PolymorphSerdes.Tests;
+namespace OutboxCosmos.Tests;
 
 public class MessageSerializationTests(ITestOutputHelper output)
 {
@@ -11,8 +11,7 @@ public class MessageSerializationTests(ITestOutputHelper output)
 
     private readonly JsonSerializerOptions _options = new()
     {
-        Converters = {
-            //new MessageJsonConverter([typeof(TextMessage), typeof(ImageMessage), typeof(SystemMessage)]),
+        Converters = {            
             new JsonStringEnumConverter()
         },
         WriteIndented = true,

@@ -1,6 +1,6 @@
 ﻿using System.Reflection;
 
-namespace PolymorphSerdes.Tests;
+namespace OutboxCosmos.Tests;
 
 public static class MessageFactory
 {

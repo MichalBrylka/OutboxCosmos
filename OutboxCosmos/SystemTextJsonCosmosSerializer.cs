@@ -1,7 +1,7 @@
 ﻿using Microsoft.Azure.Cosmos;
 using System.Text.Json;
 
-namespace PolymorphSerdes;
+namespace OutboxCosmos;
 
 public class SystemTextJsonCosmosSerializer(JsonSerializerOptions options) : CosmosSerializer
 {

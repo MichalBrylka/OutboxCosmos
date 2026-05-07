@@ -1,11 +1,11 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
-namespace PolymorphSerdes;
+namespace OutboxCosmos;
 
 public interface IOptionsConfiguration
 {
-    static abstract string ConfigurationSectionName { get; }
+    static virtual string? ConfigurationSectionName { get; } = null;
 }
 
 public class CosmosOptions : IOptionsConfiguration
@@ -25,7 +25,8 @@ public class RetryOptions : IOptionsConfiguration
     public int MaxAttempts { get; set; }
 }
 
-public class MessageRoutingOptions : Dictionary<string, List<string>>,  IOptionsConfiguration {
+public class MessageRoutingOptions : Dictionary<string, List<string>>, IOptionsConfiguration
+{
     public static string ConfigurationSectionName => "MessageRouting";
 }
 
@@ -34,7 +35,9 @@ public static class OptionsExtensions
     public static IHostApplicationBuilder RegisterOptions<TOptions>(this IHostApplicationBuilder builder)
         where TOptions : class, IOptionsConfiguration
     {
-        builder.Services.Configure<TOptions>(builder.Configuration.GetSection(TOptions.ConfigurationSectionName));
+        builder.Services.Configure<TOptions>(
+            builder.Configuration.GetSection(TOptions.ConfigurationSectionName ?? typeof(TOptions).Name)
+            );
         return builder;
     }
 }

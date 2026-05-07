@@ -1,4 +1,4 @@
-﻿namespace PolymorphSerdes;
+﻿namespace OutboxCosmos;
 
 public interface IOutboxMessageHandler
 {

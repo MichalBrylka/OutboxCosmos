@@ -2,7 +2,7 @@
 using System.Text.Json.Serialization;
 
 
-namespace PolymorphSerdes.Tests;
+namespace OutboxCosmos.Tests;
 
 public class MessageJsonConverter(IEnumerable<Type> messageTypes) : JsonConverter<IMessage>
 {

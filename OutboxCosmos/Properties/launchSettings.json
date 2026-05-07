@@ -1,6 +1,6 @@
 {
   "profiles": {
-    "PolymorphSerdes": {
+    "OutboxCosmos": {
       "commandName": "Project",
       "environmentVariables": {
         "DOTNET_ENVIRONMENT": "Development"

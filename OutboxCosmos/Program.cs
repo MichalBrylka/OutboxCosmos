@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Retry;
-using PolymorphSerdes;
+using OutboxCosmos;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -16,7 +16,7 @@ var builder = Host.CreateApplicationBuilder(args);
 // --- Strongly Typed Configuration ---
 builder
     .RegisterOptions<CosmosOptions>()
-    .RegisterOptions<PolymorphSerdes.RetryOptions>()
+    .RegisterOptions<RetryOptions>()
     .RegisterOptions<MessageRoutingOptions>()
     ;
 
@@ -266,9 +266,9 @@ public class OutboxDispatcherWorker : BackgroundService
     private readonly IServiceProvider _serviceProvider;
     private readonly AsyncRetryPolicy _retryPolicy;
     private readonly ILogger<OutboxDispatcherWorker> _logger;
-    private readonly PolymorphSerdes.RetryOptions _retryOptions;
+    private readonly RetryOptions _retryOptions;
 
-    public OutboxDispatcherWorker(Channel<OutboxMessageTarget> channel, IServiceProvider serviceProvider, IOptions<PolymorphSerdes.RetryOptions> retryOptions, ILogger<OutboxDispatcherWorker> logger)
+    public OutboxDispatcherWorker(Channel<OutboxMessageTarget> channel, IServiceProvider serviceProvider, IOptions<RetryOptions> retryOptions, ILogger<OutboxDispatcherWorker> logger)
     {
         _channel = channel;
         _serviceProvider = serviceProvider;
@@ -387,4 +387,3 @@ public class OutboxRecoveryWorker : BackgroundService
         }
     }
 }
-
