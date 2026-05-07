@@ -20,9 +20,6 @@ builder
     .RegisterOptions<MessageRoutingOptions>()
     ;
 
-
-
-// --- Cosmos DB Client & Serializer ---
 builder.Services.AddSingleton(sp =>
 {
     var options = sp.GetRequiredService<IOptions<CosmosOptions>>().Value;
@@ -40,18 +37,20 @@ builder.Services.AddSingleton(sp =>
     });
 });
 
-// --- 4. Services & Repositories ---
+
 builder.Services.AddSingleton<IOutboxRepository, CosmosOutboxRepository>();
 builder.Services.AddSingleton<IOutboxMessageHandler, EmailHandler>();
 builder.Services.AddSingleton<IOutboxMessageHandler, SmsHandler>();
 builder.Services.AddSingleton<IOutboxMessageHandler, AuditHandler>();
 
 // Channel for in-process dispatching
-builder.Services.AddSingleton(_ => Channel.CreateUnbounded<OutboxMessageTarget>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false }));
+builder.Services.AddSingleton(_ =>
+    Channel.CreateUnbounded<OutboxMessageTarget>(new UnboundedChannelOptions
+        { SingleReader = true, SingleWriter = false }));
 
 // --- 5. Background Workers ---
 builder.Services.AddHostedService<OutboxDispatcherWorker>(); // Processes Channel
-builder.Services.AddHostedService<OutboxRecoveryWorker>();   // Scans DB for "Pending"
+builder.Services.AddHostedService<OutboxRecoveryWorker>(); // Scans DB for "Pending"
 
 var host = builder.Build();
 
@@ -62,12 +61,12 @@ await RunDemo(host.Services);
 await host.StartAsync();
 
 Console.WriteLine("""
-    
-    --- Outbox System Running ---
-    Press 'R' to replay failed/dead messages. Press 'Q' to quit.
-    -----------------------------
 
-    """);
+                  --- Outbox System Running ---
+                  Press 'R' to replay failed/dead messages. Press 'Q' to quit.
+                  -----------------------------
+
+                  """);
 
 
 while (true)
@@ -100,16 +99,6 @@ while (true)
 // 4. Graceful Shutdown
 await host.StopAsync();
 
-
-
-
-
-
-
-
-// ==========================================
-// CORE LOGIC & REPOSITORY
-// ==========================================
 
 async Task InitializeDatabase(IServiceProvider sp)
 {

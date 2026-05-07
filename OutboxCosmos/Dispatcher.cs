@@ -29,8 +29,8 @@ public class OutboxDispatcherWorker : BackgroundService
             .Handle<Exception>()
             .WaitAndRetryAsync(_retryOptions.MaxAttempts,
                 retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
-                (ex, time, retryCount, context) =>
-                    _logger.LogWarning($"Retry {retryCount} due to: {ex.Message}"));
+                (ex, _, retryCount, _) =>
+                    _logger.LogWarning("Retry {RetryCount} due to: {Message}", retryCount, ex.Message));
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -52,14 +52,14 @@ public class OutboxDispatcherWorker : BackgroundService
                 var message = await repo.GetMessageAsync(target.MessageId);
                 if (message == null || handler == null)
                 {
-                    _logger.LogWarning($"Skipping target {target.Id}: Message or Handler not found.");
+                    _logger.LogWarning("Skipping target {TargetId}: Message or Handler not found.", target.Id);
                     continue;
                 }
 
                 // 2. Execute with Polly Resiliency
                 await _retryPolicy.ExecuteAsync(async () =>
                 {
-                    _logger.LogInformation($"Attempting to publish {target.TargetName} for message {target.MessageId}...");
+                    _logger.LogInformation("Attempting to publish {TargetName} for message {MessageId}...", target.TargetName, target.MessageId);
 
                     await handler.Publish(message);
 
@@ -71,13 +71,13 @@ public class OutboxDispatcherWorker : BackgroundService
                         LastError = null // Clear any previous errors
                     };
                     await repo.UpdateTargetStatusAsync(successTarget);
-                    _logger.LogInformation($"Successfully dispatched {target.Id}: {target.MessageId}");
+                    _logger.LogInformation("Successfully dispatched {TargetId}: {MessageId}", target.Id, target.MessageId);
                 });
             }
             catch (Exception ex)
             {
                 // 4. Dead Letter: If Polly retries are exhausted, it throws here
-                _logger.LogError($"Permanent failure for target {target.Id} after retries. Moving to DeadLetter. Error: {ex.Message}");
+                _logger.LogError("Permanent failure for target {TargetId} after retries. Moving to DeadLetter. Error: {ExMessage}", target.Id, ex.Message);
 
                 var deadTarget = target with
                 {
@@ -92,7 +92,7 @@ public class OutboxDispatcherWorker : BackgroundService
                 }
                 catch (Exception dbEx)
                 {
-                    _logger.LogCritical($"Failed to even update DeadLetter status in DB: {dbEx.Message}");
+                    _logger.LogCritical("Failed to even update DeadLetter status in DB: {DbExMessage}", dbEx.Message);
                 }
             }
         }
