@@ -34,7 +34,7 @@ builder.Services.AddSingleton(sp =>
     });
 });
 
-
+builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IOutboxRepository, CosmosOutboxRepository>();
 builder.Services.AddSingleton<IOutboxMessageHandler, EmailHandler>();
 builder.Services.AddSingleton<IOutboxMessageHandler, SmsHandler>();
@@ -42,7 +42,7 @@ builder.Services.AddSingleton<IOutboxMessageHandler, AuditHandler>();
 
 // Channel for in-process dispatching
 builder.Services.AddSingleton(_ =>
-    Channel.CreateUnbounded<OutboxMessageTarget>(new UnboundedChannelOptions
+    Channel.CreateUnbounded<OutboxMessageTargetDocument>(new UnboundedChannelOptions
     { SingleReader = true, SingleWriter = false }));
 
 // --- 5. Background Workers ---
@@ -112,7 +112,7 @@ async Task RunDemo(IServiceProvider sp)
 {
     var repo = sp.GetRequiredService<IOutboxRepository>();
     var routing = sp.GetRequiredService<IOptions<MessageRoutingOptions>>().Value;
-    var channel = sp.GetRequiredService<Channel<OutboxMessageTarget>>();
+    var channel = sp.GetRequiredService<Channel<OutboxMessageTargetDocument>>();
 
     var messages = new List<IMessage>
     {
@@ -122,7 +122,7 @@ async Task RunDemo(IServiceProvider sp)
     };
 
     foreach (var msg in messages)
-    {        
+    {
         var typeName = msg.GetType().Name;
         if (routing.TryGetValue(typeName, out var targetNames))
         {

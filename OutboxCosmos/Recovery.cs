@@ -4,7 +4,7 @@ using System.Threading.Channels;
 
 namespace OutboxCosmos;
 
-public class OutboxRecoveryWorker(IOutboxRepository repository, Channel<OutboxMessageTarget> channel, ILogger<OutboxRecoveryWorker> logger) : BackgroundService
+public class OutboxRecoveryWorker(IOutboxRepository repository, Channel<OutboxMessageTargetDocument> channel, ILogger<OutboxRecoveryWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

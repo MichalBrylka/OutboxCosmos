@@ -11,15 +11,17 @@ public class OutboxDispatcherWorker : BackgroundService
 {
     private readonly IOutboxRepository _repository;
     private readonly IEnumerable<IOutboxMessageHandler> _handlers;
-    private readonly Channel<OutboxMessageTarget> _channel;    
+    private readonly IClock _clock;
+    private readonly Channel<OutboxMessageTargetDocument> _channel;
     private readonly AsyncRetryPolicy _retryPolicy;
     private readonly ILogger<OutboxDispatcherWorker> _logger;
     private readonly RetryOptions _retryOptions;
 
-    public OutboxDispatcherWorker(IOutboxRepository repository, IEnumerable<IOutboxMessageHandler> handlers, Channel<OutboxMessageTarget> channel, IOptions<RetryOptions> retryOptions, ILogger<OutboxDispatcherWorker> logger)
+    public OutboxDispatcherWorker(IOutboxRepository repository, IEnumerable<IOutboxMessageHandler> handlers, IClock clock, Channel<OutboxMessageTargetDocument> channel, IOptions<RetryOptions> retryOptions, ILogger<OutboxDispatcherWorker> logger)
     {
         _repository = repository;
         _handlers = handlers;
+        _clock = clock;
         _channel = channel;
         _retryOptions = retryOptions.Value;
         _logger = logger;
@@ -30,7 +32,7 @@ public class OutboxDispatcherWorker : BackgroundService
             .WaitAndRetryAsync(_retryOptions.MaxAttempts,
                 retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
                 (ex, _, retryCount, _) =>
-                    _logger.LogWarning("Retry {RetryCount} due to: {Message}", retryCount, ex.Message));        
+                    _logger.LogWarning("Retry {RetryCount} due to: {Message}", retryCount, ex.Message));
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -43,8 +45,8 @@ public class OutboxDispatcherWorker : BackgroundService
             var handler = _handlers.FirstOrDefault(h => h.Name == targetDocument.TargetName);
 
             try
-            {   
-                if (targetDocument.Payload == null )
+            {
+                if (targetDocument.Payload == null)
                 {
                     _logger.LogWarning("Skipping target {TargetId}: Message is empty.", targetDocument.Id);
                     continue;
@@ -56,11 +58,11 @@ public class OutboxDispatcherWorker : BackgroundService
                     _logger.LogInformation("Attempting to publish {TargetName} for message {MessageId}...", targetDocument.TargetName, targetDocument.MessageId);
 
                     await handler.Publish(targetDocument.MessageId, targetDocument.Payload);
-                                        
+
                     var successTarget = targetDocument with
                     {
                         Status = OutboxMessageTargetStatus.Dispatched,
-                        DispatchedAtUtc = DateTimeOffset.UtcNow,
+                        DispatchedAtUtc = _clock.UtcNowOffset,
                         LastError = null // Clear any previous errors
                     };
                     await _repository.UpdateTargetStatusAsync(successTarget);

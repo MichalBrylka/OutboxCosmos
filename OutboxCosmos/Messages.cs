@@ -17,8 +17,7 @@ public record ImageMessage(string SourceSession, int Width, int Height, string U
 public record SystemMessage(string SourceSession, DateTime Timestamp, string Content = "") : BaseMessage(SourceSession);
 
 
-//TODO rename to +Document + look for references 
-public record OutboxMessageTarget(
+public record OutboxMessageTargetDocument(
     string Id,
 
     string MessageId,

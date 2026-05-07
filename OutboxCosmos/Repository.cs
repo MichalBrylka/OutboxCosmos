@@ -5,24 +5,20 @@ namespace OutboxCosmos;
 
 public interface IOutboxRepository
 {
-    Task<ICollection<OutboxMessageTarget>> AddMessageWithTargetsAsync(IMessage message, ICollection<string> targetNames);
-    Task UpdateTargetStatusAsync(OutboxMessageTarget target);
-    Task<List<OutboxMessageTarget>> GetPendingTargetsAsync(int limit = 50);
+    Task<ICollection<OutboxMessageTargetDocument>> AddMessageWithTargetsAsync(IMessage message, ICollection<string> targetNames);
+    Task UpdateTargetStatusAsync(OutboxMessageTargetDocument target);
+    Task<List<OutboxMessageTargetDocument>> GetPendingTargetsAsync(int limit = 50);
     Task<int> ReplayFailedMessagesAsync();
     string GetUniqueId();
 }
 
-public class CosmosOutboxRepository : IOutboxRepository
+public class CosmosOutboxRepository(CosmosClient client, IOptions<CosmosOptions> options, IClock clock) : IOutboxRepository
 {
-    private readonly Container _container;
-    public CosmosOutboxRepository(CosmosClient client, IOptions<CosmosOptions> options)
-    {
-        _container = client.GetContainer(options.Value.Database, options.Value.Container);
-    }
+    private readonly Container _container = client.GetContainer(options.Value.Database, options.Value.Container);
 
-    public async Task<ICollection<OutboxMessageTarget>> AddMessageWithTargetsAsync(IMessage message, ICollection<string> targetNames)
+    public async Task<ICollection<OutboxMessageTargetDocument>> AddMessageWithTargetsAsync(IMessage message, ICollection<string> targetNames)
     {
-        var result = new List<OutboxMessageTarget>();
+        var result = new List<OutboxMessageTargetDocument>();
 
         var messageId = GetUniqueId();
 
@@ -30,8 +26,8 @@ public class CosmosOutboxRepository : IOutboxRepository
 
         foreach (var targetName in targetNames)
         {
-            var targetDocument = new OutboxMessageTarget(
-                GetUniqueId(), messageId, message, DateTimeOffset.UtcNow, targetName, OutboxMessageTargetStatus.Pending, 0, null, null, null, null
+            var targetDocument = new OutboxMessageTargetDocument(
+                GetUniqueId(), messageId, message, clock.UtcNowOffset, targetName, OutboxMessageTargetStatus.Pending, 0, null, null, null, null
             );
             result.Add(targetDocument);
             batch.CreateItem(targetDocument);
@@ -43,12 +39,12 @@ public class CosmosOutboxRepository : IOutboxRepository
         return result;
     }
 
-    public async Task UpdateTargetStatusAsync(OutboxMessageTarget target)
+    public async Task UpdateTargetStatusAsync(OutboxMessageTargetDocument target)
     {
         await _container.UpsertItemAsync(target, new PartitionKey(target.MessageId));
     }
 
-    public async Task<List<OutboxMessageTarget>> GetPendingTargetsAsync(int limit = 50)
+    public async Task<List<OutboxMessageTargetDocument>> GetPendingTargetsAsync(int limit = 50)
     {
         var queryDefinition = new QueryDefinition("""            
             SELECT TOP @limit * FROM c WHERE c.status = @status ORDER BY c._ts ASC
@@ -56,8 +52,8 @@ public class CosmosOutboxRepository : IOutboxRepository
             .WithParameter("@limit", limit)
             .WithParameter("@status", nameof(OutboxMessageTargetStatus.Pending));
 
-        var iterator = _container.GetItemQueryIterator<OutboxMessageTarget>(queryDefinition);
-        var results = new List<OutboxMessageTarget>();
+        var iterator = _container.GetItemQueryIterator<OutboxMessageTargetDocument>(queryDefinition);
+        var results = new List<OutboxMessageTargetDocument>();
 
         while (iterator.HasMoreResults)
         {
@@ -75,7 +71,7 @@ public class CosmosOutboxRepository : IOutboxRepository
             .WithParameter("@status2", nameof(OutboxMessageTargetStatus.ReplyRequested))
             ;
 
-        var iterator = _container.GetItemQueryIterator<OutboxMessageTarget>(queryDefinition);
+        var iterator = _container.GetItemQueryIterator<OutboxMessageTargetDocument>(queryDefinition);
         int count = 0;
 
         while (iterator.HasMoreResults)
