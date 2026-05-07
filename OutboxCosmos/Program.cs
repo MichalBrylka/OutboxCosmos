@@ -3,10 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Polly;
-using Polly.Retry;
 using OutboxCosmos;
-using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Channels;
@@ -46,7 +43,7 @@ builder.Services.AddSingleton<IOutboxMessageHandler, AuditHandler>();
 // Channel for in-process dispatching
 builder.Services.AddSingleton(_ =>
     Channel.CreateUnbounded<OutboxMessageTarget>(new UnboundedChannelOptions
-        { SingleReader = true, SingleWriter = false }));
+    { SingleReader = true, SingleWriter = false }));
 
 // --- 5. Background Workers ---
 builder.Services.AddHostedService<OutboxDispatcherWorker>(); // Processes Channel
@@ -125,24 +122,15 @@ async Task RunDemo(IServiceProvider sp)
     };
 
     foreach (var msg in messages)
-    {
-        var id = Guid.CreateVersion7().ToString();
-        var outboxMsg = new OutboxMessage(id, msg, DateTimeOffset.UtcNow);
-
-        // Determine targets based on config
+    {        
         var typeName = msg.GetType().Name;
         if (routing.TryGetValue(typeName, out var targetNames))
         {
-            var targets = targetNames.Select(t => new OutboxMessageTarget(
-                Guid.CreateVersion7().ToString(), id, t, OutboxMessageTargetStatus.Pending, 0, null, null, null, null
-            )).ToList();
+            var targetDocuments = await repo.AddMessageWithTargetsAsync(msg, targetNames);
 
-            // 4. Transactional Batch Save
-            await repo.AddMessageWithTargetsAsync(outboxMsg, targets);
-
-            // 3. Immediate Dispatch via Channel
-            //can be skipped for testing recovery 
-            foreach (var t in targets) await channel.Writer.WriteAsync(t);
+            // Immediate Dispatch via Channel
+            foreach (var t in targetDocuments)
+                await channel.Writer.WriteAsync(t); //can be skipped for testing recovery 
         }
     }
 }

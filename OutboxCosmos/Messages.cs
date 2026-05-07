@@ -17,14 +17,14 @@ public record ImageMessage(string SourceSession, int Width, int Height, string U
 public record SystemMessage(string SourceSession, DateTime Timestamp, string Content = "") : BaseMessage(SourceSession);
 
 
-public record OutboxMessage(string Id, IMessage Payload, DateTimeOffset CreatedAt)
-{
-    public string MessageId { get; init; } = Id;
-}
-
+//TODO rename to +Document + look for references 
 public record OutboxMessageTarget(
     string Id,
+
     string MessageId,
+    IMessage Payload, 
+    DateTimeOffset CreatedAt,
+
     string TargetName, //should match IOutboxMessageHandler.Name
     OutboxMessageTargetStatus Status,
     int RetryCount,

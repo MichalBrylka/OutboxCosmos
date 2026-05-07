@@ -18,7 +18,7 @@ public class OutboxRecoveryWorker(IOutboxRepository repository, Channel<OutboxMe
             foreach (var target in pending)
                 await channel.Writer.WriteAsync(target, stoppingToken); // Re-enqueue into channel if not already being processed
 
-            await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
         }
     }
 }

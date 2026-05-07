@@ -1,16 +1,15 @@
 ﻿using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Options;
-using System.Net;
 
 namespace OutboxCosmos;
 
 public interface IOutboxRepository
 {
-    Task AddMessageWithTargetsAsync(OutboxMessage message, IEnumerable<OutboxMessageTarget> targets);
-    Task<OutboxMessage?> GetMessageAsync(string messageId);
+    Task<ICollection<OutboxMessageTarget>> AddMessageWithTargetsAsync(IMessage message, ICollection<string> targetNames);
     Task UpdateTargetStatusAsync(OutboxMessageTarget target);
     Task<List<OutboxMessageTarget>> GetPendingTargetsAsync(int limit = 50);
     Task<int> ReplayFailedMessagesAsync();
+    string GetUniqueId();
 }
 
 public class CosmosOutboxRepository : IOutboxRepository
@@ -21,29 +20,27 @@ public class CosmosOutboxRepository : IOutboxRepository
         _container = client.GetContainer(options.Value.Database, options.Value.Container);
     }
 
-    public async Task AddMessageWithTargetsAsync(OutboxMessage message, IEnumerable<OutboxMessageTarget> targets)
+    public async Task<ICollection<OutboxMessageTarget>> AddMessageWithTargetsAsync(IMessage message, ICollection<string> targetNames)
     {
-        // All items share 'messageId' as partition key for transactional consistency
-        var batch = _container.CreateTransactionalBatch(new PartitionKey(message.Id));
+        var result = new List<OutboxMessageTarget>();
 
-        // We use a custom 'type' property internally or just store them. 
-        // To distinguish in Cosmos, we'll ensure the POCOs serialize with a discriminator if needed, 
-        // but here they are unique enough by schema.
-        batch.CreateItem(message);
-        foreach (var target in targets) batch.CreateItem(target);
+        var messageId = GetUniqueId();
+
+        var batch = _container.CreateTransactionalBatch(new PartitionKey(messageId));
+
+        foreach (var targetName in targetNames)
+        {
+            var targetDocument = new OutboxMessageTarget(
+                GetUniqueId(), messageId, message, DateTimeOffset.UtcNow, targetName, OutboxMessageTargetStatus.Pending, 0, null, null, null, null
+            );
+            result.Add(targetDocument);
+            batch.CreateItem(targetDocument);
+        }
 
         using var response = await batch.ExecuteAsync();
         if (!response.IsSuccessStatusCode) throw new Exception($"Batch failed: {response.ErrorMessage}");
-    }
 
-    public async Task<OutboxMessage?> GetMessageAsync(string messageId)
-    {
-        try
-        {
-            var response = await _container.ReadItemAsync<OutboxMessage>(messageId, new PartitionKey(messageId));
-            return response.Resource;
-        }
-        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound) { return null; }
+        return result;
     }
 
     public async Task UpdateTargetStatusAsync(OutboxMessageTarget target)
@@ -54,7 +51,7 @@ public class CosmosOutboxRepository : IOutboxRepository
     public async Task<List<OutboxMessageTarget>> GetPendingTargetsAsync(int limit = 50)
     {
         var queryDefinition = new QueryDefinition("""            
-            SELECT TOP @limit * FROM c WHERE IS_DEFINED(c.targetName) AND c.status = @status ORDER BY c._ts ASC
+            SELECT TOP @limit * FROM c WHERE c.status = @status ORDER BY c._ts ASC
             """)
             .WithParameter("@limit", limit)
             .WithParameter("@status", nameof(OutboxMessageTargetStatus.Pending));
@@ -72,7 +69,7 @@ public class CosmosOutboxRepository : IOutboxRepository
     public async Task<int> ReplayFailedMessagesAsync()
     {
         var queryDefinition = new QueryDefinition("""            
-            SELECT * FROM c WHERE IS_DEFINED(c.targetName) AND c.status IN (@status1, @status2)
+            SELECT * FROM c WHERE c.status IN (@status1, @status2)
             """)
             .WithParameter("@status1", nameof(OutboxMessageTargetStatus.DeadLettered))
             .WithParameter("@status2", nameof(OutboxMessageTargetStatus.ReplyRequested))
@@ -99,4 +96,6 @@ public class CosmosOutboxRepository : IOutboxRepository
         }
         return count;
     }
+
+    public string GetUniqueId() => Guid.CreateVersion7().ToString();
 }

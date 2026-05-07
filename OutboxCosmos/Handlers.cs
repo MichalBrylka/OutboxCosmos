@@ -1,44 +1,46 @@
-﻿namespace OutboxCosmos;
+﻿using Microsoft.Extensions.Logging;
+
+namespace OutboxCosmos;
 
 public interface IOutboxMessageHandler
 {
     string Name { get; }
-    Task Publish(OutboxMessage message);
+    Task Publish(string id, IMessage message);
 }
 
-public class EmailHandler : IOutboxMessageHandler
+public class EmailHandler(ILogger<IOutboxMessageHandler> logger) : IOutboxMessageHandler
 {
     public string Name => "email";
 
-    public Task Publish(OutboxMessage message)
+    public Task Publish(string id, IMessage message)
     {
         // 100% chance of failure
         if (Random.Shared.NextDouble() < 1.0)
             throw new Exception("SMTP Server timed out (Simulated).");
 
-        Console.WriteLine($"[EMAIL] Sent message {message.Id}: {message.Payload}");
+        logger.LogInformation("[EMAIL] Sent message {Id}: {Message}", id, message);
         return Task.CompletedTask;
     }
 }
 
-public class SmsHandler : IOutboxMessageHandler
+public class SmsHandler(ILogger<IOutboxMessageHandler> logger) : IOutboxMessageHandler
 {
     public string Name => "sms";
 
-    public Task Publish(OutboxMessage message)
+    public Task Publish(string id, IMessage message)
     {
-        Console.WriteLine($"[SMS] Sent message {message.Id}: {message.Payload}");
+        logger.LogInformation("[SMS] Sent message {Id}: {Message}", id, message);
         return Task.CompletedTask;
     }
 }
 
-public class AuditHandler : IOutboxMessageHandler
+public class AuditHandler(ILogger<IOutboxMessageHandler> logger) : IOutboxMessageHandler
 {
     public string Name => "audit";
 
-    public Task Publish(OutboxMessage message)
+    public Task Publish(string id, IMessage message)
     {
-        Console.WriteLine($"[AUDIT] Logged message {message.Id}: {message.Payload}");
+        logger.LogInformation("[AUDIT] Logged message {Id}: {Message}", id, message);
         return Task.CompletedTask;
     }
 }

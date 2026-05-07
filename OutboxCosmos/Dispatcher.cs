@@ -38,44 +38,41 @@ public class OutboxDispatcherWorker : BackgroundService
         _logger.LogInformation("Outbox Dispatcher Started. Monitoring channel...");
 
         // ReadAllAsync keeps the loop alive until the channel is closed
-        await foreach (var target in _channel.Reader.ReadAllAsync(stoppingToken))
+        await foreach (var targetDocument in _channel.Reader.ReadAllAsync(stoppingToken))
         {
-            var handler = _handlers.FirstOrDefault(h => h.Name == target.TargetName);
+            var handler = _handlers.FirstOrDefault(h => h.Name == targetDocument.TargetName);
 
             try
-            {
-                // 1. Fetch the actual message payload
-                var message = await _repository.GetMessageAsync(target.MessageId);
-                if (message == null || handler == null)
+            {   
+                if (targetDocument.Payload == null )
                 {
-                    _logger.LogWarning("Skipping target {TargetId}: Message or Handler not found.", target.Id);
+                    _logger.LogWarning("Skipping target {TargetId}: Message is empty.", targetDocument.Id);
                     continue;
                 }
 
                 // 2. Execute with Polly Resiliency
                 await _retryPolicy.ExecuteAsync(async () =>
                 {
-                    _logger.LogInformation("Attempting to publish {TargetName} for message {MessageId}...", target.TargetName, target.MessageId);
+                    _logger.LogInformation("Attempting to publish {TargetName} for message {MessageId}...", targetDocument.TargetName, targetDocument.MessageId);
 
-                    await handler.Publish(message);
-
-                    // 3. Success: Update status to Dispatched
-                    var successTarget = target with
+                    await handler.Publish(targetDocument.MessageId, targetDocument.Payload);
+                                        
+                    var successTarget = targetDocument with
                     {
                         Status = OutboxMessageTargetStatus.Dispatched,
                         DispatchedAtUtc = DateTimeOffset.UtcNow,
                         LastError = null // Clear any previous errors
                     };
                     await _repository.UpdateTargetStatusAsync(successTarget);
-                    _logger.LogInformation("Successfully dispatched {TargetId}: {MessageId}", target.Id, target.MessageId);
+                    _logger.LogInformation("Successfully dispatched {TargetId}: {MessageId}", targetDocument.Id, targetDocument.MessageId);
                 });
             }
             catch (Exception ex)
             {
                 // 4. Dead Letter: If Polly retries are exhausted, it throws here
-                _logger.LogError("Permanent failure for target {TargetId} after retries. Moving to DeadLetter. Error: {ExMessage}", target.Id, ex.Message);
+                _logger.LogError("Permanent failure for target {TargetId} after retries. Moving to DeadLetter. Error: {ExMessage}", targetDocument.Id, ex.Message);
 
-                var deadTarget = target with
+                var deadTarget = targetDocument with
                 {
                     Status = OutboxMessageTargetStatus.DeadLettered,
                     LastError = ex.Message,
