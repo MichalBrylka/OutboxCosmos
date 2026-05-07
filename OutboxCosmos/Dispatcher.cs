@@ -10,17 +10,17 @@ namespace OutboxCosmos;
 public class OutboxDispatcherWorker : BackgroundService
 {
     private readonly IOutboxRepository _repository;
-    private readonly IEnumerable<IOutboxMessageHandler> _handlers;
+    private readonly RoutingHandler _routingHandler;
     private readonly IClock _clock;
     private readonly Channel<OutboxMessageTargetDocument> _channel;
     private readonly AsyncRetryPolicy _retryPolicy;
     private readonly ILogger<OutboxDispatcherWorker> _logger;
     private readonly RetryOptions _retryOptions;
 
-    public OutboxDispatcherWorker(IOutboxRepository repository, IEnumerable<IOutboxMessageHandler> handlers, IClock clock, Channel<OutboxMessageTargetDocument> channel, IOptions<RetryOptions> retryOptions, ILogger<OutboxDispatcherWorker> logger)
+    public OutboxDispatcherWorker(IOutboxRepository repository, RoutingHandler routingHandler, IClock clock, Channel<OutboxMessageTargetDocument> channel, IOptions<RetryOptions> retryOptions, ILogger<OutboxDispatcherWorker> logger)
     {
         _repository = repository;
-        _handlers = handlers;
+        _routingHandler = routingHandler;
         _clock = clock;
         _channel = channel;
         _retryOptions = retryOptions.Value;
@@ -42,7 +42,7 @@ public class OutboxDispatcherWorker : BackgroundService
         // ReadAllAsync keeps the loop alive until the channel is closed
         await foreach (var targetDocument in _channel.Reader.ReadAllAsync(stoppingToken))
         {
-            var handler = _handlers.FirstOrDefault(h => h.Name == targetDocument.TargetName);
+            var handler = _routingHandler.GetHandlerForTarget(targetDocument.TargetName);
 
             try
             {

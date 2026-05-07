@@ -14,7 +14,7 @@ var builder = Host.CreateApplicationBuilder(args);
 builder
     .RegisterOptions<CosmosOptions>()
     .RegisterOptions<RetryOptions>()
-    .RegisterOptions<MessageRoutingOptions>()
+    .RegisterOptions<MessageRoutingOptions, MessageRoutingOptionsValidator>()
     ;
 
 builder.Services.AddSingleton(sp =>
@@ -35,6 +35,7 @@ builder.Services.AddSingleton(sp =>
 });
 
 builder.Services.AddSingleton<IClock, SystemClock>();
+builder.Services.AddSingleton<RoutingHandler>();
 builder.Services.AddSingleton<IOutboxRepository, CosmosOutboxRepository>();
 builder.Services.AddSingleton<IOutboxMessageHandler, EmailHandler>();
 builder.Services.AddSingleton<IOutboxMessageHandler, SmsHandler>();
@@ -45,13 +46,13 @@ builder.Services.AddSingleton(_ =>
     Channel.CreateUnbounded<OutboxMessageTargetDocument>(new UnboundedChannelOptions
     { SingleReader = true, SingleWriter = false }));
 
-// --- 5. Background Workers ---
+// --- Background Workers ---
 builder.Services.AddHostedService<OutboxDispatcherWorker>(); // Processes Channel
 builder.Services.AddHostedService<OutboxRecoveryWorker>(); // Scans DB for "Pending"
 
 var host = builder.Build();
 
-// --- 8. Run Demo ---
+// --- Run Demo ---
 await InitializeDatabase(host.Services);
 await RunDemo(host.Services);
 
@@ -93,7 +94,7 @@ while (true)
     }
 }
 
-// 4. Graceful Shutdown
+// Graceful Shutdown
 await host.StopAsync();
 
 
@@ -111,26 +112,22 @@ async Task InitializeDatabase(IServiceProvider sp)
 async Task RunDemo(IServiceProvider sp)
 {
     var repo = sp.GetRequiredService<IOutboxRepository>();
-    var routing = sp.GetRequiredService<IOptions<MessageRoutingOptions>>().Value;
+    var routingHandler = sp.GetRequiredService<RoutingHandler>();
     var channel = sp.GetRequiredService<Channel<OutboxMessageTargetDocument>>();
 
-    var messages = new List<IMessage>
-    {
+    List<IMessage> messages = [
         new TextMessage("Session-123", MessagePriority.High, "Hello via Outbox!"),
         new ImageMessage("Session-456", 1920, 1080, "https://example.com/img.png"),
         new SystemMessage("Session-789", DateTime.UtcNow, "System Heartbeat")
-    };
+    ];
 
-    foreach (var msg in messages)
+    foreach (var m in messages)
     {
-        var typeName = msg.GetType().Name;
-        if (routing.TryGetValue(typeName, out var targetNames))
-        {
-            var targetDocuments = await repo.AddMessageWithTargetsAsync(msg, targetNames);
+        var targetDocuments = await repo.AddMessageWithTargetsAsync(m, routingHandler.GetTargetsForMessage(m));
 
-            // Immediate Dispatch via Channel
-            foreach (var t in targetDocuments)
-                await channel.Writer.WriteAsync(t); //can be skipped for testing recovery 
-        }
+        // Immediate Dispatch via Channel
+        foreach (var t in targetDocuments)
+            await channel.Writer.WriteAsync(t); //can be skipped for testing recovery 
+
     }
 }

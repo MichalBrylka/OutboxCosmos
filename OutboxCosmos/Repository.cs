@@ -5,7 +5,7 @@ namespace OutboxCosmos;
 
 public interface IOutboxRepository
 {
-    Task<ICollection<OutboxMessageTargetDocument>> AddMessageWithTargetsAsync(IMessage message, ICollection<string> targetNames);
+    Task<ICollection<OutboxMessageTargetDocument>> AddMessageWithTargetsAsync(IMessage message, IEnumerable<string> targetNames);
     Task UpdateTargetStatusAsync(OutboxMessageTargetDocument target);
     Task<List<OutboxMessageTargetDocument>> GetPendingTargetsAsync(int limit = 50);
     Task<int> ReplayFailedMessagesAsync();
@@ -16,8 +16,10 @@ public class CosmosOutboxRepository(CosmosClient client, IOptions<CosmosOptions>
 {
     private readonly Container _container = client.GetContainer(options.Value.Database, options.Value.Container);
 
-    public async Task<ICollection<OutboxMessageTargetDocument>> AddMessageWithTargetsAsync(IMessage message, ICollection<string> targetNames)
+    public async Task<ICollection<OutboxMessageTargetDocument>> AddMessageWithTargetsAsync(IMessage message, IEnumerable<string> targetNames)
     {
+        if (targetNames == null || !targetNames.Any()) return [];
+
         var result = new List<OutboxMessageTargetDocument>();
 
         var messageId = GetUniqueId();
