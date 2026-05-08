@@ -26,16 +26,41 @@ public interface IJsonOptionsFactory
     JsonSerializerOptions Create();
 }
 
-public class JsonOptionsFactory(IEnumerable<IMessageJsonPolymorphicRegistration> polymorphicRegistration) : IJsonOptionsFactory
+public abstract class DefaultJsonOptionsFactory : IJsonOptionsFactory
 {
     public JsonSerializerOptions Create()
+    {
+        var options = CreateDefaultOptions();
+
+        Configure(options);
+
+        return options;
+    }
+
+    protected virtual JsonSerializerOptions CreateDefaultOptions()
+    {
+        return new JsonSerializerOptions
+        {
+            // potentially take this from appsettings
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+    }
+
+    protected virtual void Configure(JsonSerializerOptions options) { }
+}
+
+public class JsonOptionsFactory(IEnumerable<IMessageJsonPolymorphicRegistration> polymorphicRegistration) : DefaultJsonOptionsFactory
+{
+    protected override void Configure(JsonSerializerOptions options)
     {
         var resolver = new DefaultJsonTypeInfoResolver();
 
         resolver.Modifiers.Add(typeInfo =>
         {
             if (typeInfo.Type != typeof(IMessage)) return;
-
 
             var polymorphism = new JsonPolymorphismOptions
             {
@@ -45,20 +70,13 @@ public class JsonOptionsFactory(IEnumerable<IMessageJsonPolymorphicRegistration>
             };
 
             foreach (var registration in polymorphicRegistration)
+            {
                 registration.Register(polymorphism);
+            }
 
             typeInfo.PolymorphismOptions = polymorphism;
         });
 
-        return new JsonSerializerOptions
-        {
-            //potentially take this from appsettings
-            PropertyNameCaseInsensitive = true,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            WriteIndented = true,
-            Converters = { new JsonStringEnumConverter() },
-
-            TypeInfoResolver = resolver,
-        };
+        options.TypeInfoResolver = resolver;
     }
 }
