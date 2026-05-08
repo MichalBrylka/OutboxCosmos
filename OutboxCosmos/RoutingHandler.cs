@@ -4,8 +4,8 @@ namespace OutboxCosmos;
 
 public class RoutingHandler(IOptions<MessageRoutingOptions> routingOptionsOption, IEnumerable<IOutboxMessageHandler> handlers)
 {    
-    private readonly Dictionary<string, List<string>> typeNameToTargets = routingOptionsOption.Value;
-    private readonly Dictionary<string, IOutboxMessageHandler> targetToHandlers = handlers.ToDictionary(h => h.Name, h => h);
+    private readonly IReadOnlyDictionary<string, List<string>> typeNameToTargets = routingOptionsOption.Value;
+    private readonly IReadOnlyDictionary<string, IOutboxMessageHandler> targetToHandlers = handlers.ToDictionary(h => h.Name, h => h);
     private readonly IReadOnlyCollection<string> possibleDestinations = handlers.Select(h => h.Name).Where(d => !string.IsNullOrWhiteSpace(d)).ToHashSet(StringComparer.Ordinal);
 
 
