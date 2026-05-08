@@ -1,11 +1,6 @@
 ﻿namespace OutboxCosmos;
 
-using System.Text.Json.Serialization;
 
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
-[JsonDerivedType(typeof(TextMessage), typeDiscriminator: "text")]
-[JsonDerivedType(typeof(ImageMessage), typeDiscriminator: "image")]
-[JsonDerivedType(typeof(SystemMessage), typeDiscriminator: "system")]
 public interface IMessage { }
 
 public enum MessagePriority { Low, Normal, High }

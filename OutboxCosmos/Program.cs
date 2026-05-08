@@ -7,8 +7,6 @@ using OutboxCosmos;
 using Polly;
 using Polly.Registry;
 using Polly.Retry;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.Channels;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -23,13 +21,8 @@ builder
 builder.Services.AddSingleton(sp =>
 {
     var options = sp.GetRequiredService<IOptions<CosmosOptions>>().Value;
-    var jsonOptions = new JsonSerializerOptions
-    {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = true,
-        Converters = { new JsonStringEnumConverter(null, true) }
-    };
+    var jsonOptions = sp.GetRequiredService < IJsonOptionsFactory>().Create();
+        
     return new CosmosClient(options.Endpoint, options.Key, new CosmosClientOptions
     {
         Serializer = new SystemTextJsonCosmosSerializer(jsonOptions),
@@ -39,6 +32,10 @@ builder.Services.AddSingleton(sp =>
 
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<RoutingHandler>();
+
+builder.Services.AddSingleton<IMessageJsonPolymorphicRegistration, UniversalJsonPolymorphicRegistration>();
+builder.Services.AddSingleton<IJsonOptionsFactory, JsonOptionsFactory>();
+
 builder.Services.AddSingleton<IOutboxRepository, CosmosOutboxRepository>();
 builder.Services.AddSingleton<IOutboxMessageHandler, EmailHandler>();
 builder.Services.AddSingleton<IOutboxMessageHandler, SmsHandler>();

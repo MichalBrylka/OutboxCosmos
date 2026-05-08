@@ -1,5 +1,4 @@
 ﻿using System.Text.Json;
-using System.Text.Json.Serialization;
 using Xunit.Abstractions;
 
 namespace OutboxCosmos.Tests;
@@ -8,15 +7,7 @@ public class MessageSerializationTests(ITestOutputHelper output)
 {
     private readonly ITestOutputHelper _output = output;
 
-    private readonly JsonSerializerOptions _options = new()
-    {
-        Converters = {            
-            new JsonStringEnumConverter()
-        },
-        WriteIndented = true,
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
+    private readonly JsonSerializerOptions _options = new JsonOptionsFactory([  new UniversalJsonPolymorphicRegistration() ]).Create();
 
     [Fact]
     public void Should_serialize_TextMessage_polymorphically()

@@ -14,8 +14,7 @@ public class EmailHandler(ILogger<IOutboxMessageHandler> logger) : IOutboxMessag
 
     public Task Publish(string id, IMessage message)
     {
-        // 20% chance of failure
-        if (Random.Shared.NextDouble() < 0.2)
+        if (Random.Shared.NextDouble() < 0.5)
             throw new Exception("SMTP Server timed out (Simulated).");
 
         logger.LogInformation("[EMAIL] Sent message {Id}: {Message}", id, message);
