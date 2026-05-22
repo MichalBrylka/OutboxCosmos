@@ -34,7 +34,8 @@ builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<RoutingHandler>();
 
 builder.Services.AddSingleton<IMessageJsonPolymorphicRegistration, UniversalJsonPolymorphicRegistration>();
-builder.Services.AddSingleton<IJsonOptionsFactory, JsonOptionsFactory>();
+builder.Services.AddSingleton<IJsonOptionsFactory, DefaultJsonOptionsFactory>();
+//builder.Services.AddSingleton<IJsonOptionsFactory, JsonOptionsFactory>();
 
 builder.Services.AddSingleton<IOutboxRepository, CosmosOutboxRepository>();
 builder.Services.AddSingleton<IOutboxMessageHandler, EmailHandler>();

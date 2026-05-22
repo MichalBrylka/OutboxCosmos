@@ -26,7 +26,7 @@ public interface IJsonOptionsFactory
     JsonSerializerOptions Create();
 }
 
-public abstract class DefaultJsonOptionsFactory : IJsonOptionsFactory
+public class DefaultJsonOptionsFactory : IJsonOptionsFactory
 {
     public JsonSerializerOptions Create()
     {
