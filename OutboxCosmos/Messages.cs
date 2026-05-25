@@ -23,11 +23,9 @@ public record OutboxMessageTargetDocument(
     OutboxMessageTargetStatus Status,
     int RetryCount,
     DateTimeOffset? DispatchedAtUtc,
-    string? LastError,
-    DateTimeOffset? ReplyRequestedAtUtc,
-    string? ReplyRequestedBy
+    string? LastError
     );
-public enum OutboxMessageTargetStatus { Pending, Dispatched, DeadLettered, ReplyRequested }
+public enum OutboxMessageTargetStatus { Pending, Dispatched, DeadLettered }
 
 
 

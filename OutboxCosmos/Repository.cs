@@ -29,7 +29,7 @@ public class CosmosOutboxRepository(CosmosClient client, IOptions<CosmosOptions>
         foreach (var targetName in targetNames)
         {
             var targetDocument = new OutboxMessageTargetDocument(
-                GetUniqueId(), messageId, message, clock.UtcNowOffset, targetName, OutboxMessageTargetStatus.Pending, 0, null, null, null, null
+                GetUniqueId(), messageId, message, clock.UtcNowOffset, targetName, OutboxMessageTargetStatus.Pending, 0, null, null
             );
             result.Add(targetDocument);
             batch.CreateItem(targetDocument);
@@ -67,10 +67,9 @@ public class CosmosOutboxRepository(CosmosClient client, IOptions<CosmosOptions>
     public async Task<int> ReplayFailedMessagesAsync()
     {
         var queryDefinition = new QueryDefinition("""            
-            SELECT * FROM c WHERE c.status IN (@status1, @status2)
+            SELECT * FROM c WHERE c.status IN (@status1)
             """)
-            .WithParameter("@status1", nameof(OutboxMessageTargetStatus.DeadLettered))
-            .WithParameter("@status2", nameof(OutboxMessageTargetStatus.ReplyRequested))
+            .WithParameter("@status1", nameof(OutboxMessageTargetStatus.DeadLettered))            
             ;
 
         var iterator = _container.GetItemQueryIterator<OutboxMessageTargetDocument>(queryDefinition);

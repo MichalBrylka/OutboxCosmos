@@ -1,0 +1,18 @@
+@WebProcessing_HostAddress = http://localhost:5211
+
+POST {{WebProcessing_HostAddress}}/jobs?payload=test1
+
+###
+
+POST {{WebProcessing_HostAddress}}/jobs?payload=test2
+
+###
+POST {{WebProcessing_HostAddress}}/jobs?payload=test3
+
+###
+POST {{WebProcessing_HostAddress}}/jobs?payload=test4
+
+###
+POST {{WebProcessing_HostAddress}}/jobs?payload=test5
+
+###

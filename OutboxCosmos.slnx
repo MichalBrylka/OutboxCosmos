@@ -1,3 +1,5 @@
 <Solution>
+  <Project Path="ChannelsDemo/ChannelsDemo.csproj" Id="80908773-7dac-4b29-97fd-2b00396daa1d" />
   <Project Path="OutboxCosmos/OutboxCosmos.csproj" />
+  <Project Path="WebProcessing/WebProcessing.csproj" Id="d6f7f36b-69fb-4d5e-80bf-25b55c378f35" />
 </Solution>
