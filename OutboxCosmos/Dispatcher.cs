@@ -29,6 +29,7 @@ public class OutboxDispatcherWorker(IOutboxRepository repository, IRoutingHandle
                         logger.LogWarning("Retry {RetryCount} due to retryable failure: {Message}, {Exception}", retryCount, failure.ErrorMessage, failure.Exception);
                 });
 
+    //TODO log Id as well as message ids 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Outbox Dispatcher Started. Monitoring channel...");
@@ -45,15 +46,6 @@ public class OutboxDispatcherWorker(IOutboxRepository repository, IRoutingHandle
 
             try
             {
-                if (targetDocument.Payload == null)
-                {
-                    _logger.LogWarning(
-                        "Skipping target {TargetId}: Message is empty.",
-                        targetDocument.Id);
-
-                    continue;
-                }
-
                 Result result;
                 int? retryCount = null;
 

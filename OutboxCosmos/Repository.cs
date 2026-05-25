@@ -7,7 +7,7 @@ public interface IOutboxRepository
 {
     Task<ICollection<OutboxMessageTargetDocument>> AddMessageWithTargetsAsync(IMessage message, IEnumerable<string> targetNames);
     Task UpdateTargetStatusAsync(OutboxMessageTargetDocument target);
-    Task<List<OutboxMessageTargetDocument>> GetPendingTargetsAsync(int limit = 50);
+    Task<List<OutboxMessageTargetDocument>> GetPendingTargetsAsync(int maxTotal = 1000, CancellationToken cancellationToken = default);
     string GetUniqueId();
 }
 
@@ -45,23 +45,26 @@ public class CosmosOutboxRepository(CosmosClient client, IOptions<CosmosOptions>
         await _container.UpsertItemAsync(target, new PartitionKey(target.MessageId));
     }
 
-    public async Task<List<OutboxMessageTargetDocument>> GetPendingTargetsAsync(int limit = 50)
+    public async Task<List<OutboxMessageTargetDocument>> GetPendingTargetsAsync(int maxTotal = 1000, CancellationToken cancellationToken = default)
     {
-        var queryDefinition = new QueryDefinition("""            
-            SELECT TOP @limit * FROM c WHERE c.status = @status ORDER BY c._ts ASC
-            """)
-            .WithParameter("@limit", limit)
+        var queryDefinition = new QueryDefinition("""
+            SELECT * FROM c WHERE c.status = @status ORDER BY c._ts ASC            
+        """)
             .WithParameter("@status", nameof(OutboxMessageTargetStatus.Pending));
 
-        var iterator = _container.GetItemQueryIterator<OutboxMessageTargetDocument>(queryDefinition);
+        var requestOptions = new QueryRequestOptions { MaxItemCount = 20 }; 
+
+        var iterator = _container.GetItemQueryIterator<OutboxMessageTargetDocument>(queryDefinition, requestOptions: requestOptions);
+
         var results = new List<OutboxMessageTargetDocument>();
 
-        while (iterator.HasMoreResults)
+        while (iterator.HasMoreResults && results.Count < maxTotal)
         {
-            results.AddRange(await iterator.ReadNextAsync());
+            results.AddRange(await iterator.ReadNextAsync(cancellationToken));
         }
+
         return results;
-    }   
+    }
 
     public string GetUniqueId() => Guid.CreateVersion7().ToString();
 }

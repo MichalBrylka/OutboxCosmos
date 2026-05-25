@@ -1,24 +1,27 @@
-﻿using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System.Threading.Channels;
 
 namespace OutboxCosmos;
 
-public class OutboxRecoveryWorker(IOutboxRepository repository, Channel<OutboxMessageTargetDocument> channel, ILogger<OutboxRecoveryWorker> logger) : BackgroundService
+public interface IRecoveryService
 {
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    Task RunRecoveryAsync(CancellationToken cancellationToken = default);
+}
+
+public class RecoveryService(IOutboxRepository repository, Channel<OutboxMessageTargetDocument> channel, ILogger<RecoveryService> logger) : IRecoveryService
+{
+    public async Task RunRecoveryAsync(CancellationToken cancellationToken = default)
     {
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            // 3. Periodically look for Pending messages
-            logger.LogInformation("Recovery worker scanning for pending messages...");
+        if (cancellationToken.IsCancellationRequested)
+            return;
 
-            var pending = await repository.GetPendingTargetsAsync();
+        logger.LogInformation("Recovery worker scanning for pending messages...");
+        var pending = await repository.GetPendingTargetsAsync(cancellationToken: cancellationToken);
 
-            foreach (var target in pending)
-                await channel.Writer.WriteAsync(target, stoppingToken); // Re-enqueue into channel if not already being processed
+        if (logger.IsEnabled(LogLevel.Information))
+            logger.LogInformation("Recovery will be performed for {MessagesNumber}: {IDs}", pending.Count, string.Join(", ", pending.Select(p => p.Id)));
 
-            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
-        }
+        foreach (var target in pending)
+            await channel.Writer.WriteAsync(target, cancellationToken); // Re-enqueue into channel if not already being processed
     }
 }

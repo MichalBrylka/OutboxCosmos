@@ -4,9 +4,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OutboxCosmos;
-using Polly;
-using Polly.Registry;
-using Polly.Retry;
 using System.Threading.Channels;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -32,6 +29,8 @@ builder.Services.AddSingleton(sp =>
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IRoutingHandler, RoutingHandler>();
 
+builder.Services.AddScoped<IRecoveryService, RecoveryService>();// Scans DB for "Pending"
+
 builder.Services.AddSingleton<IMessageJsonPolymorphicRegistration, UniversalJsonPolymorphicRegistration>();
 builder.Services.AddSingleton<IJsonOptionsFactory, JsonOptionsFactory>();
 
@@ -42,50 +41,28 @@ builder.Services.AddSingleton<IOutboxMessageHandler, AuditHandler>();
 builder.Services.AddSingleton<IOutboxMessageHandler, NullHandler>();
 
 // Channel for in-process dispatching
+//TODO add abstaction for channel 
 builder.Services.AddSingleton(_ =>
     Channel.CreateUnbounded<OutboxMessageTargetDocument>(new UnboundedChannelOptions
     { SingleReader = true, SingleWriter = false }));
 
 // --- Background Workers ---
+
 builder.Services.AddHostedService<OutboxDispatcherWorker>(); // Processes Channel
-//builder.Services.AddHostedService<OutboxRecoveryWorker>(); // Scans DB for "Pending"
 
-var host = builder.Build();
+var app = builder.Build();
 
-// --- Run Demo ---
-await InitializeDatabase(host.Services);
-await RunDemo(host.Services);
+await InitializeDatabase(app.Services);
 
-await host.StartAsync();
-
-Console.WriteLine("""
-
-                  --- Outbox System Running ---
-                  Press 'Q' to quit.
-                  -----------------------------
-
-                  """);
-
-
-while (true)
+using (var scope = app.Services.CreateScope())
 {
-    if (!Console.KeyAvailable)
-    {
-        await Task.Delay(100); // Prevent CPU spiking
-        continue;
-    }
-
-    var key = Console.ReadKey(true).Key;
-
-    if (key == ConsoleKey.Q)
-    {
-        Console.WriteLine("\nShutting down...");
-        break;
-    }
+    var recovery = scope.ServiceProvider.GetRequiredService<IRecoveryService>();
+    await recovery.RunRecoveryAsync(/*app.Lifetime.ApplicationStopping*/);
 }
 
-// Graceful Shutdown
-await host.StopAsync();
+await AddExampleMessages(app.Services);
+
+await app.RunAsync();
 
 
 async Task InitializeDatabase(IServiceProvider sp)
@@ -99,7 +76,7 @@ async Task InitializeDatabase(IServiceProvider sp)
     await db.Database.CreateContainerIfNotExistsAsync(new ContainerProperties(opt.Container, "/messageId"));
 }
 
-async Task RunDemo(IServiceProvider sp)
+async Task AddExampleMessages(IServiceProvider sp)
 {
     var repo = sp.GetRequiredService<IOutboxRepository>();
     var routingHandler = sp.GetRequiredService<IRoutingHandler>();
