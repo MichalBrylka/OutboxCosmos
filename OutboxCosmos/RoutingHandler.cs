@@ -58,5 +58,5 @@ public class RoutingHandler(IEnumerable<IOutboxMessageHandler> handlers) : IRout
     public IOutboxMessageHandler GetHandlerForTarget(string targetName) =>
         targetToHandlers.TryGetValue(targetName, out var handler)
             ? handler
-            : throw new Exception($"No handler found for target '{targetName}'. Check your configuration and ensure a handler with this name is registered.");
+            : throw new Exception($"No handler found for target '{targetName}'. Check your configuration and ensure a handler with this name is registered."); //fail-fast approach to catch misconfigurations early
 }

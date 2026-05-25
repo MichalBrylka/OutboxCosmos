@@ -33,33 +33,13 @@ builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IRoutingHandler, RoutingHandler>();
 
 builder.Services.AddSingleton<IMessageJsonPolymorphicRegistration, UniversalJsonPolymorphicRegistration>();
-builder.Services.AddSingleton<IJsonOptionsFactory, DefaultJsonOptionsFactory>();
-//builder.Services.AddSingleton<IJsonOptionsFactory, JsonOptionsFactory>();
+builder.Services.AddSingleton<IJsonOptionsFactory, JsonOptionsFactory>();
 
 builder.Services.AddSingleton<IOutboxRepository, CosmosOutboxRepository>();
 builder.Services.AddSingleton<IOutboxMessageHandler, EmailHandler>();
 builder.Services.AddSingleton<IOutboxMessageHandler, SmsHandler>();
 builder.Services.AddSingleton<IOutboxMessageHandler, AuditHandler>();
 builder.Services.AddSingleton<IOutboxMessageHandler, NullHandler>();
-
-builder.Services.AddSingleton<IPolicyRegistry<string>>(sp =>
-{
-    var logger = sp.GetRequiredService<ILogger<IRetryPolicy>>();
-
-    return new PolicyRegistry
-    {
-        {
-            "OutboxPolicy", Policy
-                .Handle<Exception>()
-                .WaitAndRetryAsync(
-                    sp.GetRequiredService<IOptions<OutboxOptions>>().Value.MaxRetryAttempts,
-                    retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)) + TimeSpan.FromMilliseconds(Random.Shared.Next(0, 200)), //exponential backoff with jitter                    
-                    (ex, _, retryCount, _) => logger.LogWarning("Retry {RetryCount} due to: {Message}", retryCount, ex.Message)
-                    )
-        }
-    };
-});
-
 
 // Channel for in-process dispatching
 builder.Services.AddSingleton(_ =>
@@ -68,7 +48,7 @@ builder.Services.AddSingleton(_ =>
 
 // --- Background Workers ---
 builder.Services.AddHostedService<OutboxDispatcherWorker>(); // Processes Channel
-builder.Services.AddHostedService<OutboxRecoveryWorker>(); // Scans DB for "Pending"
+//builder.Services.AddHostedService<OutboxRecoveryWorker>(); // Scans DB for "Pending"
 
 var host = builder.Build();
 
@@ -81,7 +61,7 @@ await host.StartAsync();
 Console.WriteLine("""
 
                   --- Outbox System Running ---
-                  Press 'R' to replay failed/dead messages. Press 'Q' to quit.
+                  Press 'Q' to quit.
                   -----------------------------
 
                   """);
