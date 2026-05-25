@@ -8,7 +8,6 @@ public interface IOutboxRepository
     Task<ICollection<OutboxMessageTargetDocument>> AddMessageWithTargetsAsync(IMessage message, IEnumerable<string> targetNames);
     Task UpdateTargetStatusAsync(OutboxMessageTargetDocument target);
     Task<List<OutboxMessageTargetDocument>> GetPendingTargetsAsync(int limit = 50);
-    Task<int> ReplayFailedMessagesAsync();
     string GetUniqueId();
 }
 
@@ -62,37 +61,7 @@ public class CosmosOutboxRepository(CosmosClient client, IOptions<CosmosOptions>
             results.AddRange(await iterator.ReadNextAsync());
         }
         return results;
-    }
-
-    public async Task<int> ReplayFailedMessagesAsync()
-    {
-        var queryDefinition = new QueryDefinition("""            
-            SELECT * FROM c WHERE c.status IN (@status1)
-            """)
-            .WithParameter("@status1", nameof(OutboxMessageTargetStatus.DeadLettered))            
-            ;
-
-        var iterator = _container.GetItemQueryIterator<OutboxMessageTargetDocument>(queryDefinition);
-        int count = 0;
-
-        while (iterator.HasMoreResults)
-        {
-            var response = await iterator.ReadNextAsync();
-            foreach (var target in response)
-            {
-                // Reset to Pending to let the workers pick it up again
-                var updated = target with
-                {
-                    Status = OutboxMessageTargetStatus.Pending,
-                    RetryCount = 0,
-                    LastError = "Replay triggered manually"
-                };
-                await UpdateTargetStatusAsync(updated);
-                count++;
-            }
-        }
-        return count;
-    }
+    }   
 
     public string GetUniqueId() => Guid.CreateVersion7().ToString();
 }

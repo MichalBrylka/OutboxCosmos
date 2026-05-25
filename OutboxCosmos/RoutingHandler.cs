@@ -1,20 +1,58 @@
-﻿using Microsoft.Extensions.Options;
+﻿namespace OutboxCosmos;
 
-namespace OutboxCosmos;
+public interface IRoutingHandler
+{
+    IOutboxMessageHandler GetHandlerForTarget(string targetName);
+    IReadOnlyCollection<string> GetTargetsForMessage(IMessage message);
+}
 
-public class RoutingHandler(IOptions<MessageRoutingOptions> routingOptionsOption, IEnumerable<IOutboxMessageHandler> handlers)
-{    
-    private readonly IReadOnlyDictionary<string, List<string>> typeNameToTargets = routingOptionsOption.Value;
+public class RoutingHandler(IEnumerable<IOutboxMessageHandler> handlers) : IRoutingHandler
+{
     private readonly IReadOnlyDictionary<string, IOutboxMessageHandler> targetToHandlers = handlers.ToDictionary(h => h.Name, h => h);
-    private readonly IReadOnlyCollection<string> possibleDestinations = handlers.Select(h => h.Name).Where(d => !string.IsNullOrWhiteSpace(d)).ToHashSet(StringComparer.Ordinal);
 
 
-    public IReadOnlyCollection<string> GetTargetsForMessage(IMessage message)
+    public IReadOnlyCollection<string> GetTargetsForMessage(IMessage message) => message switch
     {
-        var typeName = message.GetType().Name;
-        if (typeNameToTargets.TryGetValue(typeName, out var targetNames))
-            return targetNames;
-        return possibleDestinations; //design decision - if no explicit mapping is defined, send to all possible destinations
+        TextMessage tm => GetTargetsForTextMessage(tm),
+        ImageMessage im => GetTargetsForImageMessage(im),
+        SystemMessage sm => GetTargetsForSystemMessage(sm),
+        _ => [NullHandler.HandlerName]
+    };
+
+    private static List<string> GetTargetsForTextMessage(TextMessage message)
+    {
+        List<string> targets = [AuditHandler.HandlerName];
+
+        if (message.Priority == MessagePriority.High)
+            targets.AddRange([EmailHandler.HandlerName, SmsHandler.HandlerName]);
+        else if (message.Priority == MessagePriority.Normal)
+            targets.Add(EmailHandler.HandlerName);
+
+        return targets;
+    }
+
+    private static List<string> GetTargetsForImageMessage(ImageMessage message)
+    {
+        List<string> targets = [AuditHandler.HandlerName];
+
+        var size = message.Width * message.Height;
+
+        if (size > 1_000_000)
+            targets.Add(EmailHandler.HandlerName);
+        else
+            targets.AddRange([EmailHandler.HandlerName, SmsHandler.HandlerName]);
+
+        return targets;
+    }
+
+    private static List<string> GetTargetsForSystemMessage(SystemMessage message)
+    {
+        List<string> targets = [AuditHandler.HandlerName];
+
+        if (message.Content.Contains("error", StringComparison.OrdinalIgnoreCase))
+            targets.Add(EmailHandler.HandlerName);
+
+        return targets;
     }
 
     public IOutboxMessageHandler GetHandlerForTarget(string targetName) =>

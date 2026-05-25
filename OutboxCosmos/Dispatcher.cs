@@ -7,12 +7,12 @@ using System.Threading.Channels;
 
 namespace OutboxCosmos;
 
-public class OutboxDispatcherWorker(IOutboxRepository repository, RoutingHandler routingHandler, IClock clock, Channel<OutboxMessageTargetDocument> channel,
-    IOptions<RetryOptions> retryOptions, IPolicyRegistry<string> policyRegistry, ILogger<OutboxDispatcherWorker> logger) : BackgroundService
+public class OutboxDispatcherWorker(IOutboxRepository repository, IRoutingHandler routingHandler, IClock clock, Channel<OutboxMessageTargetDocument> channel,
+    IOptions<OutboxOptions> outboxOptions, IPolicyRegistry<string> policyRegistry, ILogger<OutboxDispatcherWorker> logger) : BackgroundService
 {
     private readonly IAsyncPolicy _retryPolicy = policyRegistry.Get<IAsyncPolicy>("OutboxPolicy");
     private readonly ILogger<OutboxDispatcherWorker> _logger = logger;
-    private readonly RetryOptions _retryOptions = retryOptions.Value;
+    private readonly OutboxOptions _outboxOptions = outboxOptions.Value;
 
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -58,7 +58,7 @@ public class OutboxDispatcherWorker(IOutboxRepository repository, RoutingHandler
                 {
                     Status = OutboxMessageTargetStatus.DeadLettered,
                     LastError = ex.Message,
-                    RetryCount = _retryOptions.MaxAttempts // Marking that we hit the ceiling
+                    RetryCount = _outboxOptions.MaxRetryAttempts // Marking that we hit the ceiling
                 };
 
                 try

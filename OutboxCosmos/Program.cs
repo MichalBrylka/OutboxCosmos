@@ -14,15 +14,14 @@ var builder = Host.CreateApplicationBuilder(args);
 // --- Strongly Typed Configuration ---
 builder
     .RegisterOptions<CosmosOptions>()
-    .RegisterOptions<RetryOptions>()
-    .RegisterOptions<MessageRoutingOptions, MessageRoutingOptionsValidator>()
+    .RegisterOptions<OutboxOptions>()
     ;
 
 builder.Services.AddSingleton(sp =>
 {
     var options = sp.GetRequiredService<IOptions<CosmosOptions>>().Value;
-    var jsonOptions = sp.GetRequiredService < IJsonOptionsFactory>().Create();
-        
+    var jsonOptions = sp.GetRequiredService<IJsonOptionsFactory>().Create();
+
     return new CosmosClient(options.Endpoint, options.Key, new CosmosClientOptions
     {
         Serializer = new SystemTextJsonCosmosSerializer(jsonOptions),
@@ -31,7 +30,7 @@ builder.Services.AddSingleton(sp =>
 });
 
 builder.Services.AddSingleton<IClock, SystemClock>();
-builder.Services.AddSingleton<RoutingHandler>();
+builder.Services.AddSingleton<IRoutingHandler, RoutingHandler>();
 
 builder.Services.AddSingleton<IMessageJsonPolymorphicRegistration, UniversalJsonPolymorphicRegistration>();
 builder.Services.AddSingleton<IJsonOptionsFactory, DefaultJsonOptionsFactory>();
@@ -41,6 +40,8 @@ builder.Services.AddSingleton<IOutboxRepository, CosmosOutboxRepository>();
 builder.Services.AddSingleton<IOutboxMessageHandler, EmailHandler>();
 builder.Services.AddSingleton<IOutboxMessageHandler, SmsHandler>();
 builder.Services.AddSingleton<IOutboxMessageHandler, AuditHandler>();
+builder.Services.AddSingleton<IOutboxMessageHandler, NullHandler>();
+
 builder.Services.AddSingleton<IPolicyRegistry<string>>(sp =>
 {
     var logger = sp.GetRequiredService<ILogger<IRetryPolicy>>();
@@ -51,8 +52,8 @@ builder.Services.AddSingleton<IPolicyRegistry<string>>(sp =>
             "OutboxPolicy", Policy
                 .Handle<Exception>()
                 .WaitAndRetryAsync(
-                    sp.GetRequiredService<IOptions<RetryOptions>>().Value.MaxAttempts,
-                    retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
+                    sp.GetRequiredService<IOptions<OutboxOptions>>().Value.MaxRetryAttempts,
+                    retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)) + TimeSpan.FromMilliseconds(Random.Shared.Next(0, 200)), //exponential backoff with jitter                    
                     (ex, _, retryCount, _) => logger.LogWarning("Retry {RetryCount} due to: {Message}", retryCount, ex.Message)
                     )
         }
@@ -96,17 +97,7 @@ while (true)
 
     var key = Console.ReadKey(true).Key;
 
-    if (key == ConsoleKey.R)
-    {
-        Console.WriteLine("\n[Manual Trigger] Replaying failed messages...");
-        using var scope = host.Services.CreateScope();
-        var repo = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
-
-        // This flips DeadLettered -> Pending, which the RecoveryWorker will pick up
-        var count = await repo.ReplayFailedMessagesAsync();
-        Console.WriteLine($">>> {count} targets reset to Pending for recovery scan.\n");
-    }
-    else if (key == ConsoleKey.Q)
+    if (key == ConsoleKey.Q)
     {
         Console.WriteLine("\nShutting down...");
         break;
@@ -131,7 +122,7 @@ async Task InitializeDatabase(IServiceProvider sp)
 async Task RunDemo(IServiceProvider sp)
 {
     var repo = sp.GetRequiredService<IOutboxRepository>();
-    var routingHandler = sp.GetRequiredService<RoutingHandler>();
+    var routingHandler = sp.GetRequiredService<IRoutingHandler>();
     var channel = sp.GetRequiredService<Channel<OutboxMessageTargetDocument>>();
 
     List<IMessage> messages = [
