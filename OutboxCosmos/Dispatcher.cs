@@ -18,8 +18,7 @@ public class OutboxDispatcherWorker(IOutboxRepository repository, IRoutingHandle
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Outbox Dispatcher Started. Monitoring channel...");
-
-        // ReadAllAsync keeps the loop alive until the channel is closed
+                
         await foreach (var targetDocument in channel.Reader.ReadAllAsync(stoppingToken))
         {
             var handler = routingHandler.GetHandlerForTarget(targetDocument.TargetName);
@@ -31,14 +30,16 @@ public class OutboxDispatcherWorker(IOutboxRepository repository, IRoutingHandle
                     _logger.LogWarning("Skipping target {TargetId}: Message is empty.", targetDocument.Id);
                     continue;
                 }
+                                
 
-                // Execute with Polly Resiliency
+
                 await _retryPolicy.ExecuteAsync(async () =>
                 {
                     _logger.LogInformation("Attempting to publish {TargetName} for message {MessageId}...", targetDocument.TargetName, targetDocument.MessageId);
 
                     await handler.Publish(targetDocument.MessageId, targetDocument.Payload);
 
+                    
                     var successTarget = targetDocument with
                     {
                         Status = OutboxMessageTargetStatus.Dispatched,

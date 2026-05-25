@@ -18,14 +18,11 @@ public record OutboxMessageTargetDocument(
     string MessageId,
     IMessage Payload, 
     DateTimeOffset CreatedAt,
-
     string TargetName, //should match IOutboxMessageHandler.Name
+    
     OutboxMessageTargetStatus Status,
     int RetryCount,
-    DateTimeOffset? DispatchedAtUtc,
-    string? LastError
+    DateTimeOffset? DispatchedAtUtc = null,
+    string? LastError = null
     );
 public enum OutboxMessageTargetStatus { Pending, Dispatched, DeadLettered }
-
-
-

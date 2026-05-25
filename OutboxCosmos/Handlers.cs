@@ -20,21 +20,14 @@ public class EmailHandler(ILogger<IOutboxMessageHandler> logger) : IOutboxMessag
 
     public Task<Result> Publish(string id, IMessage message)
     {
-        try
-        {
-            if (Random.Shared.NextDouble() < 0.5)
-                return Task.FromResult(
-                    Result.Fail("SMTP Server timed out (Simulated).", isRetryable: true)
-                );
+        if (Random.Shared.NextDouble() < 0.5)
+            return Task.FromResult(
+                Result.Fail("SMTP Server timed out (Simulated).", isRetryable: true)
+            );
 
-            logger.LogInformation("[EMAIL] Sent message {Id}: {Message}", id, message);
+        logger.LogInformation("[EMAIL] Sent message {Id}: {Message}", id, message);
 
-            return Task.FromResult(Result.Ok("Email sent"));
-        }
-        catch (Exception ex)
-        {
-            return Task.FromResult(Result.Fail("Unexpected email failure", isRetryable: true, ex));
-        }
+        return Task.FromResult(Result.Ok("Email sent"));
     }
 }
 
@@ -46,37 +39,23 @@ public class SmsHandler(ILogger<IOutboxMessageHandler> logger) : IOutboxMessageH
 
     public Task<Result> Publish(string id, IMessage message)
     {
-        try
-        {
-            logger.LogInformation("[SMS] Sent message {Id}: {Message}", id, message);
+        logger.LogInformation("[SMS] Sent message {Id}: {Message}", id, message);
 
-            return Task.FromResult(Result.Ok("SMS sent"));
-        }
-        catch (Exception ex)
-        {
-            return Task.FromResult(Result.Fail("SMS send failed", isRetryable: false, ex));
-        }
+        return Task.FromResult(Result.Ok("SMS sent"));
     }
 }
 
 public class AuditHandler(ILogger<IOutboxMessageHandler> logger) : IOutboxMessageHandler
-{    
+{
     public string Name => HandlerName;
     public static string HandlerName => "audit";
     public bool SupportRetry => false;
 
     public Task<Result> Publish(string id, IMessage message)
     {
-        try
-        {
-            logger.LogInformation("[AUDIT] Logged message {Id}: {Message}", id, message);
+        logger.LogInformation("[AUDIT] Logged message {Id}: {Message}", id, message);
 
-            return Task.FromResult(Result.Ok());
-        }
-        catch (Exception ex)
-        {
-            return Task.FromResult(Result.Fail("Audit logging failed", isRetryable: false, ex));
-        }
+        return Task.FromResult(Result.Ok());
     }
 }
 
@@ -84,12 +63,12 @@ public class NullHandler(ILogger<IOutboxMessageHandler> logger) : IOutboxMessage
 {
     public string Name => HandlerName;
     public static string HandlerName => "null";
-        
+
     public bool SupportRetry => false;
 
     public Task<Result> Publish(string id, IMessage message)
     {
-        logger.LogInformation("[NULL] Message {Id} will not be sent to any handler: {Message}", id, message);
+        logger.LogWarning("[NULL] Message {Id} will not be sent to any handler: {Message}", id, message);
 
         return Task.FromResult(Result.Ok());
     }
