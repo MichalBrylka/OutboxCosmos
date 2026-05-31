@@ -46,12 +46,9 @@ builder.Services.AddHostedService<OutboxDispatcherWorker>();
 var app = builder.Build();
 
 await InitializeDatabase(app.Services);
-
-await app.StartAsync();
-
 await AddExampleMessages(app.Services);
 
-await app.StopAsync();
+await app.RunAsync();
 
 
 async Task InitializeDatabase(IServiceProvider sp)

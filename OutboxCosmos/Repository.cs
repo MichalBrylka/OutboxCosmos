@@ -111,24 +111,17 @@ public class CosmosOutboxRepository(CosmosClient client, IOptions<CosmosOptions>
     """)
         .WithParameter("@status", nameof(OutboxMessageTargetStatus.Pending));
 
-        try
+        var iterator = _container.GetItemQueryIterator<OutboxDispatchRequest>(query, requestOptions: new QueryRequestOptions { MaxItemCount = 100 });
+
+        var results = new List<OutboxDispatchRequest>(Math.Min(maxTotal, 1024));
+
+        while (iterator.HasMoreResults && results.Count < maxTotal)
         {
-            var iterator = _container.GetItemQueryIterator<OutboxDispatchRequest>(query, requestOptions: new QueryRequestOptions { MaxItemCount = 100 });
-
-            var results = new List<OutboxDispatchRequest>(Math.Min(maxTotal, 1024));
-
-            while (iterator.HasMoreResults && results.Count < maxTotal)
-            {
-                results.AddRange(await iterator.ReadNextAsync(cancellationToken));
-            }
-
-            return results;
+            results.AddRange(await iterator.ReadNextAsync(cancellationToken));
         }
-        catch (Exception e)
-        {
 
-            throw;
-        }
+        return results;
+
     }
 
     public string GetUniqueId() => Guid.CreateVersion7().ToString();

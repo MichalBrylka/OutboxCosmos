@@ -22,7 +22,7 @@ public class EmailHandler(ILogger<IOutboxMessageHandler> logger) : IOutboxMessag
     {
         if (Random.Shared.NextDouble() < 0.5)
             return Task.FromResult(
-                Result.Fail("SMTP Server timed out (Simulated).", isRetryable: true)
+                Result.Fail("SMTP Server timed out (Simulated).", isRetryable: true, id: id)
             );
 
         logger.LogInformation("[EMAIL] Sent message {Id}: {Message}", id, message);

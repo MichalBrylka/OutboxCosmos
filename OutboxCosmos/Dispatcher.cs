@@ -25,13 +25,11 @@ public class OutboxDispatcherWorker(IOutboxRepository repository, IRoutingHandle
                     if (outcome.Exception is not null)
                         logger.LogWarning(outcome.Exception, "Retry {RetryCount} due to exception: {Message}", retryCount, outcome.Exception.Message);
                     else if (outcome.Result is Failure failure)
-                        logger.LogWarning("Retry {RetryCount} due to retryable failure: {Message}, {Exception}", retryCount, failure.ErrorMessage, failure.Exception);
+                        logger.LogWarning("Retry {RetryCount} due to retryable failure: ({ID}){Message}, {Exception}", retryCount, failure.Id, failure.ErrorMessage, failure.Exception);
                 });
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        await RunRecoveryAsync(stoppingToken);
-
+    {        
         _logger.LogInformation("Outbox Dispatcher Started. Monitoring channel...");
 
         await foreach (OutboxDispatchRequest dispatchRequest in channel.Reader.ReadAllAsync(stoppingToken))
@@ -88,18 +86,5 @@ public class OutboxDispatcherWorker(IOutboxRepository repository, IRoutingHandle
         }
     }
 
-    private async Task RunRecoveryAsync(CancellationToken cancellationToken = default)
-    {
-        if (cancellationToken.IsCancellationRequested)
-            return;
-
-        logger.LogInformation("Recovery scanning for pending messages...");
-        List<OutboxDispatchRequest> pending = await repository.GetPendingTargetIdsAsync(cancellationToken: cancellationToken);
-
-        if (logger.IsEnabled(LogLevel.Information))
-            logger.LogInformation("Recovery will be performed for {MessagesNumber}: {DocumentIds}", pending.Count, string.Join(", ", pending.Select(p => p.DocumentId)));
-
-        foreach (var p in pending)
-            await channel.Writer.WriteAsync(p, cancellationToken);
-    }
+   
 }
