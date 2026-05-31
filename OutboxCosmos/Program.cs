@@ -4,11 +4,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OutboxCosmos;
-using System.Threading.Channels;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-// --- Strongly Typed Configuration ---
 builder
     .RegisterOptions<CosmosOptions>()
     .RegisterOptions<OutboxOptions>()
@@ -29,8 +27,6 @@ builder.Services.AddSingleton(sp =>
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IRoutingHandler, RoutingHandler>();
 
-builder.Services.AddScoped<IRecoveryService, RecoveryService>();// Scans DB for "Pending"
-
 builder.Services.AddSingleton<IMessageJsonPolymorphicRegistration, UniversalJsonPolymorphicRegistration>();
 builder.Services.AddSingleton<IJsonOptionsFactory, JsonOptionsFactory>();
 
@@ -40,29 +36,22 @@ builder.Services.AddSingleton<IOutboxMessageHandler, SmsHandler>();
 builder.Services.AddSingleton<IOutboxMessageHandler, AuditHandler>();
 builder.Services.AddSingleton<IOutboxMessageHandler, NullHandler>();
 
-// Channel for in-process dispatching
-//TODO add abstaction for channel 
-builder.Services.AddSingleton(_ =>
-    Channel.CreateUnbounded<OutboxMessageTargetDocument>(new UnboundedChannelOptions
-    { SingleReader = true, SingleWriter = false }));
+
+builder.Services.AddSingleton<IOutboxChannel, OutboxChannel>();
+
 
 // --- Background Workers ---
-
-builder.Services.AddHostedService<OutboxDispatcherWorker>(); // Processes Channel
+builder.Services.AddHostedService<OutboxDispatcherWorker>();
 
 var app = builder.Build();
 
 await InitializeDatabase(app.Services);
 
-using (var scope = app.Services.CreateScope())
-{
-    var recovery = scope.ServiceProvider.GetRequiredService<IRecoveryService>();
-    await recovery.RunRecoveryAsync(/*app.Lifetime.ApplicationStopping*/);
-}
+await app.StartAsync();
 
 await AddExampleMessages(app.Services);
 
-await app.RunAsync();
+await app.StopAsync();
 
 
 async Task InitializeDatabase(IServiceProvider sp)
@@ -80,7 +69,7 @@ async Task AddExampleMessages(IServiceProvider sp)
 {
     var repo = sp.GetRequiredService<IOutboxRepository>();
     var routingHandler = sp.GetRequiredService<IRoutingHandler>();
-    var channel = sp.GetRequiredService<Channel<OutboxMessageTargetDocument>>();
+    var channel = sp.GetRequiredService<IOutboxChannel>();
 
     List<IMessage> messages = [
         new TextMessage("Session-123", MessagePriority.High, "Hello via Outbox!"),
@@ -90,11 +79,9 @@ async Task AddExampleMessages(IServiceProvider sp)
 
     foreach (var m in messages)
     {
-        var targetDocuments = await repo.AddMessageWithTargetsAsync(m, routingHandler.GetTargetsForMessage(m));
+        var dispatchRequests = await repo.AddMessageWithTargetsAsync(m, routingHandler.GetTargetsForMessage(m));
 
-        // Immediate Dispatch via Channel
-        foreach (var t in targetDocuments)
-            await channel.Writer.WriteAsync(t); //can be skipped for testing recovery 
-
+        foreach (var dr in dispatchRequests)
+            await channel.Writer.WriteAsync(dr); //can be skipped for testing recovery 
     }
 }

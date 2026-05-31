@@ -3,11 +3,10 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Retry;
-using System.Threading.Channels;
 
 namespace OutboxCosmos;
 
-public class OutboxDispatcherWorker(IOutboxRepository repository, IRoutingHandler routingHandler, IClock clock, Channel<OutboxMessageTargetDocument> channel,
+public class OutboxDispatcherWorker(IOutboxRepository repository, IRoutingHandler routingHandler, IClock clock, IOutboxChannel channel,
     IOptions<OutboxOptions> outboxOptions, ILogger<OutboxDispatcherWorker> logger) : BackgroundService
 {
     private const string RETRY_COUNT_KEY = "RetryCount";
@@ -29,18 +28,17 @@ public class OutboxDispatcherWorker(IOutboxRepository repository, IRoutingHandle
                         logger.LogWarning("Retry {RetryCount} due to retryable failure: {Message}, {Exception}", retryCount, failure.ErrorMessage, failure.Exception);
                 });
 
-    //TODO log Id as well as message ids 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        await RunRecoveryAsync(stoppingToken);
+
         _logger.LogInformation("Outbox Dispatcher Started. Monitoring channel...");
 
-        await foreach (var targetDocument in channel.Reader.ReadAllAsync(stoppingToken))
+        await foreach (OutboxDispatchRequest dispatchRequest in channel.Reader.ReadAllAsync(stoppingToken))
         {
-            if (targetDocument.Payload == null)
-            {
-                _logger.LogWarning("Skipping target {TargetId}: Message is empty.", targetDocument.Id);
-                continue;
-            }
+            var targetDocument = await repository.GetAsync(dispatchRequest.DocumentId, dispatchRequest.MessageId);
+
+            if (targetDocument == null) { _logger.LogWarning("Skipping target {OutboxDispatchRequest}: Message is empty.", dispatchRequest); continue; }
 
             var handler = routingHandler.GetHandlerForTarget(targetDocument.TargetName);
 
@@ -49,64 +47,59 @@ public class OutboxDispatcherWorker(IOutboxRepository repository, IRoutingHandle
                 Result result;
                 int? retryCount = null;
 
-                _logger.LogInformation("Attempting to publish {TargetName} for message {MessageId}...", targetDocument.TargetName, targetDocument.MessageId);
+                _logger.LogInformation("Attempting to publish {TargetName} for message {DocumentId}...", targetDocument.TargetName, targetDocument.Id);
 
                 if (handler.SupportRetry)
                 {
                     var context = new Context();
-                    result = await _retryPolicy.ExecuteAsync(async ctx => await handler.Publish(targetDocument.MessageId, targetDocument.Payload), context);
+                    result = await _retryPolicy.ExecuteAsync(async ctx => await handler.Publish(targetDocument.Id, targetDocument.Payload), context);
                     retryCount = context.TryGetValue(RETRY_COUNT_KEY, out var value) ? (int)value : 0;
                 }
                 else
                 {
-                    result = await handler.Publish(targetDocument.MessageId, targetDocument.Payload);
+                    result = await handler.Publish(targetDocument.Id, targetDocument.Payload);
                 }
 
                 if (result is Success)
                 {
-                    var successTarget = targetDocument with
-                    {
-                        Status = OutboxMessageTargetStatus.Dispatched,
-                        DispatchedAtUtc = clock.UtcNowOffset,
-                        LastError = null,
-                        RetryCount = retryCount ?? 0
-                    };
-                    await repository.UpdateTargetStatusAsync(successTarget);
-
-                    _logger.LogInformation("Successfully dispatched {TargetId}: {MessageId}", targetDocument.Id, targetDocument.MessageId);
-
-                    continue;
+                    await repository.MarkAsDispatchedAsync(dispatchRequest, clock.UtcNowOffset, retryCount ?? 0, stoppingToken);
+                    _logger.LogInformation("Successfully dispatched {DocumentId}: {MessageId} for {TargetName}", targetDocument.Id, targetDocument.MessageId, targetDocument.TargetName);
                 }
-
-                var failure = (Failure)result;
-
-                _logger.LogError("Failed to dispatch target {TargetId}. Retryable: {Retryable}. Error: {Error}", targetDocument.Id, failure.IsRetryable, failure.ErrorMessage);
-
-                var deadTarget = targetDocument with
+                else
                 {
-                    Status = OutboxMessageTargetStatus.DeadLettered,
-                    LastError = failure.ErrorMessage,
-                    RetryCount = retryCount ?? 0
-                };
+                    var failure = (Failure)result;
 
-                await repository.UpdateTargetStatusAsync(deadTarget);
+                    _logger.LogError("Failed to dispatch target {DocumentId}. Retryable: {Retryable}. Error: {Error}", targetDocument.Id, failure.IsRetryable, failure.ErrorMessage);
+
+                    await repository.MarkAsDeadLetterAsync(dispatchRequest, failure.ErrorMessage, retryCount ?? 0, stoppingToken);
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Permanent failure for target {TargetId} after retries. Moving to DeadLetter.", targetDocument.Id);
-
-                var deadTarget = targetDocument with
-                {
-                    Status = OutboxMessageTargetStatus.DeadLettered,
-                    LastError = ex.Message,
-                    RetryCount = -1
-                };
+                _logger.LogError(ex, "Permanent failure for target {DocumentId} after retries. Moving to DeadLetter.", targetDocument.Id);
 
                 try
-                { await repository.UpdateTargetStatusAsync(deadTarget); }
+                {
+                    await repository.MarkAsDeadLetterAsync(dispatchRequest, ex.Message, -1, stoppingToken);
+                }
                 catch (Exception dbEx)
                 { _logger.LogCritical(dbEx, "Failed to update DeadLetter status in DB."); }
             }
         }
+    }
+
+    private async Task RunRecoveryAsync(CancellationToken cancellationToken = default)
+    {
+        if (cancellationToken.IsCancellationRequested)
+            return;
+
+        logger.LogInformation("Recovery scanning for pending messages...");
+        List<OutboxDispatchRequest> pending = await repository.GetPendingTargetIdsAsync(cancellationToken: cancellationToken);
+
+        if (logger.IsEnabled(LogLevel.Information))
+            logger.LogInformation("Recovery will be performed for {MessagesNumber}: {DocumentIds}", pending.Count, string.Join(", ", pending.Select(p => p.DocumentId)));
+
+        foreach (var p in pending)
+            await channel.Writer.WriteAsync(p, cancellationToken);
     }
 }
