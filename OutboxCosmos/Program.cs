@@ -39,6 +39,8 @@ builder.Services.AddSingleton<IOutboxMessageHandler, NullHandler>();
 
 builder.Services.AddSingleton<IOutboxChannel, OutboxChannel>();
 
+builder.Services.AddSingleton<IOutboxPublisher, OutboxPublisher>();
+
 
 // --- Background Workers ---
 builder.Services.AddHostedService<OutboxDispatcherWorker>();
@@ -46,12 +48,51 @@ builder.Services.AddHostedService<OutboxDispatcherWorker>();
 var app = builder.Build();
 
 await InitializeDatabase(app.Services);
-await AddExampleMessages(app.Services);
 
-await app.RunAsync();
+await app.StartAsync();
+
+var publisher = app.Services.GetRequiredService<IOutboxPublisher>();
+List<IMessage> messages = [
+            new TextMessage("Session-123", MessagePriority.High, "Hello via Outbox!"),
+            new ImageMessage("Session-456", 1920, 1080, "https://example.com/img.png"),
+            new SystemMessage("Session-789", DateTime.UtcNow, "System Heartbeat")
+         ];
+foreach (var message in messages) await publisher.PublishAsync(message);
 
 
-async Task InitializeDatabase(IServiceProvider sp)
+Console.WriteLine("Application started.");
+Console.WriteLine("Press 'M' to send a manual SystemMessage. Press Escape to exit.");
+
+var listeningTask = Task.Run(async () =>
+{
+    while (true)
+    {
+        var keyInfo = Console.ReadKey(intercept: true);
+        if (keyInfo.Key == ConsoleKey.M)
+        {
+            var manualMessage = new SystemMessage(Guid.CreateVersion7().ToString(), DateTime.UtcNow, "Manual System Message");
+            try
+            {
+                await publisher.PublishAsync(manualMessage);
+                Console.WriteLine($"[Info] Manual SystemMessage published (MessageId: {manualMessage.SourceSession}).");
+            }
+            catch (Exception ex) { Console.Error.WriteLine($"[Error] Failed to publish manual message: {ex.Message}"); }
+        }
+        else if (keyInfo.Key == ConsoleKey.Escape)
+        {
+            Console.WriteLine("Escape pressed. Exiting...");
+            break;
+        }
+    }
+});
+
+// wait for the listening loop to finish (Escape pressed)
+await listeningTask;
+
+
+await app.StopAsync();
+
+static async Task InitializeDatabase(IServiceProvider sp)
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
     var client = sp.GetRequiredService<CosmosClient>();
@@ -60,25 +101,4 @@ async Task InitializeDatabase(IServiceProvider sp)
     logger.LogInformation("Ensuring Database/Container exists...");
     var db = await client.CreateDatabaseIfNotExistsAsync(opt.Database);
     await db.Database.CreateContainerIfNotExistsAsync(new ContainerProperties(opt.Container, "/messageId"));
-}
-
-async Task AddExampleMessages(IServiceProvider sp)
-{
-    var repo = sp.GetRequiredService<IOutboxRepository>();
-    var routingHandler = sp.GetRequiredService<IRoutingHandler>();
-    var channel = sp.GetRequiredService<IOutboxChannel>();
-
-    List<IMessage> messages = [
-        new TextMessage("Session-123", MessagePriority.High, "Hello via Outbox!"),
-        new ImageMessage("Session-456", 1920, 1080, "https://example.com/img.png"),
-        new SystemMessage("Session-789", DateTime.UtcNow, "System Heartbeat")
-    ];
-
-    foreach (var m in messages)
-    {
-        var dispatchRequests = await repo.AddMessageWithTargetsAsync(m, routingHandler.GetTargetsForMessage(m));
-
-        foreach (var dr in dispatchRequests)
-            await channel.Writer.WriteAsync(dr); //can be skipped for testing recovery 
-    }
 }

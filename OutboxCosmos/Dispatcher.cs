@@ -6,12 +6,15 @@ using Polly.Retry;
 
 namespace OutboxCosmos;
 
-public class OutboxDispatcherWorker(IOutboxRepository repository, IRoutingHandler routingHandler, IClock clock, IOutboxChannel channel,
+public class OutboxDispatcherWorker(IOutboxRepository repository, IRoutingHandler routingHandler, IOutboxChannel channel,
     IOptions<OutboxOptions> outboxOptions, ILogger<OutboxDispatcherWorker> logger) : BackgroundService
 {
     private const string RETRY_COUNT_KEY = "RetryCount";
 
     private readonly ILogger<OutboxDispatcherWorker> _logger = logger;
+    private readonly OutboxOptions _outboxOptions = outboxOptions.Value;
+
+
     private readonly AsyncRetryPolicy<Result> _retryPolicy = Policy<Result>
             .Handle<Exception>()
             .OrResult(result => result is Failure failure && failure.IsRetryable)
@@ -29,12 +32,23 @@ public class OutboxDispatcherWorker(IOutboxRepository repository, IRoutingHandle
                 });
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {        
+    {
+        await RecoverAsync(stoppingToken);
+
         _logger.LogInformation("Outbox Dispatcher Started. Monitoring channel...");
 
+        var consumers = Enumerable.Range(0, _outboxOptions.ConsumerCount)
+            .Select(_ => ConsumeAsync(stoppingToken))
+            .ToArray();
+
+        await Task.WhenAll(consumers);
+    }
+
+    private async Task ConsumeAsync(CancellationToken stoppingToken)
+    {
         await foreach (OutboxDispatchRequest dispatchRequest in channel.Reader.ReadAllAsync(stoppingToken))
         {
-            var targetDocument = await repository.GetAsync(dispatchRequest.DocumentId, dispatchRequest.MessageId);
+            var targetDocument = await repository.GetAsync(dispatchRequest.DocumentId, dispatchRequest.MessageId, stoppingToken);
 
             if (targetDocument == null) { _logger.LogWarning("Skipping target {OutboxDispatchRequest}: Message is empty.", dispatchRequest); continue; }
 
@@ -60,7 +74,7 @@ public class OutboxDispatcherWorker(IOutboxRepository repository, IRoutingHandle
 
                 if (result is Success)
                 {
-                    await repository.MarkAsDispatchedAsync(dispatchRequest, clock.UtcNowOffset, retryCount ?? 0, stoppingToken);
+                    await repository.MarkAsDispatchedAsync(dispatchRequest, retryCount ?? 0, stoppingToken);
                     _logger.LogInformation("Successfully dispatched {DocumentId}: {MessageId} for {TargetName}", targetDocument.Id, targetDocument.MessageId, targetDocument.TargetName);
                 }
                 else
@@ -86,5 +100,33 @@ public class OutboxDispatcherWorker(IOutboxRepository repository, IRoutingHandle
         }
     }
 
-   
+    private int _recoveryRun = 0; // ensure RunRecovery runs only once
+    private async Task RecoverAsync(CancellationToken cancellationToken)
+    {
+        if (Interlocked.Exchange(ref _recoveryRun, 1) != 0)
+            return;
+
+        if (cancellationToken.IsCancellationRequested)
+            return;
+
+        try
+        {
+            _logger.LogInformation("Recovery scanning for pending messages...");
+            var pending = await repository.GetPendingTargetIdsAsync(_outboxOptions.RecoveryBatchSize, cancellationToken);
+
+            if (pending.Count == 0)
+                return;
+
+            if (_logger.IsEnabled(LogLevel.Information))
+                _logger.LogInformation("Recovery will be performed for {MessagesNumber}: {DocumentIds}", pending.Count, string.Join(", ", pending.Select(p => p.DocumentId)));
+
+            foreach (var p in pending)
+                await channel.Writer.WriteAsync(p, cancellationToken);
+        }
+        catch (Exception e)
+        {
+            _logger.LogCritical(e, "Failed during recovery process. No pending messages will be dispatched until next restart.");
+            throw; //prevent host from starting in bad state 
+        }
+    }
 }

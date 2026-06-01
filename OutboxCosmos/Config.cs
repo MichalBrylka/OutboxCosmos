@@ -25,7 +25,11 @@ public class OutboxOptions : IOptionsConfiguration
 {
     public static string ConfigurationSectionName => "Outbox";
 
-    public int MaxRetryAttempts { get; set; }
+    public int MaxRetryAttempts { get; set; } = 4;
+
+    public int ConsumerCount { get; set; } = 4;
+    
+    public int RecoveryBatchSize { get; set; } = 100;
 }
 
 public static class OptionsExtensions

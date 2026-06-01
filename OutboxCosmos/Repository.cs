@@ -5,10 +5,10 @@ namespace OutboxCosmos;
 
 public interface IOutboxRepository
 {
-    Task<List<OutboxDispatchRequest>> AddMessageWithTargetsAsync(IMessage message, IReadOnlyCollection<string> targetNames, CancellationToken cancellationToken = default);
+    Task<List<OutboxDispatchRequest>> AddAsync(IMessage message, IReadOnlyCollection<string> targetNames, CancellationToken cancellationToken = default);
     Task<OutboxMessageTargetDocument?> GetAsync(string id, string messageId, CancellationToken cancellationToken = default);
 
-    Task MarkAsDispatchedAsync(OutboxDispatchRequest request, DateTimeOffset dispatchedAtUtc, int retryCount, CancellationToken cancellationToken = default);
+    Task MarkAsDispatchedAsync(OutboxDispatchRequest request, int retryCount, CancellationToken cancellationToken = default);
     Task MarkAsDeadLetterAsync(OutboxDispatchRequest request, string lastError, int retryCount, CancellationToken cancellationToken = default);
 
 
@@ -18,9 +18,11 @@ public interface IOutboxRepository
 
 public class CosmosOutboxRepository(CosmosClient client, IOptions<CosmosOptions> options, IClock clock) : IOutboxRepository
 {
+    private readonly DateTimeOffset _startupTime = clock.UtcNowOffset;
+
     private readonly Container _container = client.GetContainer(options.Value.Database, options.Value.Container);
 
-    public async Task<List<OutboxDispatchRequest>> AddMessageWithTargetsAsync(IMessage message, IReadOnlyCollection<string> targetNames, CancellationToken cancellationToken = default)
+    public async Task<List<OutboxDispatchRequest>> AddAsync(IMessage message, IReadOnlyCollection<string> targetNames, CancellationToken cancellationToken = default)
     {
         if (targetNames == null || targetNames.Count == 0) return [];
 
@@ -71,14 +73,14 @@ public class CosmosOutboxRepository(CosmosClient client, IOptions<CosmosOptions>
         }
     }
 
-    public async Task MarkAsDispatchedAsync(OutboxDispatchRequest request, DateTimeOffset dispatchedAtUtc, int retryCount, CancellationToken cancellationToken = default)
+    public async Task MarkAsDispatchedAsync(OutboxDispatchRequest request, int retryCount, CancellationToken cancellationToken = default)
     {
         await _container.PatchItemAsync<OutboxMessageTargetDocument>(
             request.DocumentId,
             new PartitionKey(request.MessageId),
             [
                 PatchOperation.Set("/status", nameof(OutboxMessageTargetStatus.Dispatched)),
-                PatchOperation.Set("/dispatchedAtUtc", dispatchedAtUtc),
+                PatchOperation.Set("/dispatchedAtUtc", clock.UtcNowOffset),
                 PatchOperation.Set("/retryCount", retryCount),
                 PatchOperation.Set("/lastError", "")
             ],
@@ -107,9 +109,12 @@ public class CosmosOutboxRepository(CosmosClient client, IOptions<CosmosOptions>
             c.targetName AS TargetName
         FROM c
         WHERE c.status = @status
+          AND c.createdAt <= @recoverUntil
         ORDER BY c._ts ASC
     """)
-        .WithParameter("@status", nameof(OutboxMessageTargetStatus.Pending));
+        .WithParameter("@status", nameof(OutboxMessageTargetStatus.Pending))
+        .WithParameter("@recoverUntil", _startupTime)
+        ;
 
         var iterator = _container.GetItemQueryIterator<OutboxDispatchRequest>(query, requestOptions: new QueryRequestOptions { MaxItemCount = 100 });
 
