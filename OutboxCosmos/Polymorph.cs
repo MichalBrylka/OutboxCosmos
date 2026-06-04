@@ -14,9 +14,9 @@ public sealed class UniversalJsonPolymorphicRegistration : IMessageJsonPolymorph
 {
     public void Register(JsonPolymorphismOptions options)
     {
-        options.DerivedTypes.Add(new JsonDerivedType(typeof(TextMessage), "text"));
-        options.DerivedTypes.Add(new JsonDerivedType(typeof(ImageMessage), "image"));
-        options.DerivedTypes.Add(new JsonDerivedType(typeof(SystemMessage), "system"));
+        options.DerivedTypes.Add(new JsonDerivedType(typeof(RFQRequest), "RgqRequest"));
+        options.DerivedTypes.Add(new JsonDerivedType(typeof(Quote), "Quote"));
+        options.DerivedTypes.Add(new JsonDerivedType(typeof(QuoteCancel), "QuoteCancel"));
     }
 }
 

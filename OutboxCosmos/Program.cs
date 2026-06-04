@@ -26,13 +26,14 @@ builder.Services.AddSingleton(sp =>
 
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IRoutingHandler, RoutingHandler>();
+builder.Services.AddSingleton<IRoutingVisitor, RoutingVisitor>();
 
 builder.Services.AddSingleton<IMessageJsonPolymorphicRegistration, UniversalJsonPolymorphicRegistration>();
 builder.Services.AddSingleton<IJsonOptionsFactory, JsonOptionsFactory>();
 
 builder.Services.AddSingleton<IOutboxRepository, CosmosOutboxRepository>();
-builder.Services.AddSingleton<IOutboxMessageHandler, EmailHandler>();
-builder.Services.AddSingleton<IOutboxMessageHandler, SmsHandler>();
+
+builder.Services.AddSingleton<IOutboxMessageHandler, FixGatewayHandler>();
 builder.Services.AddSingleton<IOutboxMessageHandler, AuditHandler>();
 builder.Services.AddSingleton<IOutboxMessageHandler, NullHandler>();
 
@@ -53,10 +54,11 @@ await app.StartAsync();
 
 var publisher = app.Services.GetRequiredService<IOutboxPublisher>();
 List<IMessage> messages = [
-            new TextMessage("Session-123", MessagePriority.High, "Hello via Outbox!"),
-            new ImageMessage("Session-456", 1920, 1080, "https://example.com/img.png"),
-            new SystemMessage("Session-789", DateTime.UtcNow, "System Heartbeat")
-         ];
+    new RFQRequest(RFQId: "RFQ-20250614-001", Symbol: "AAPL", Quantity: 10_000),
+    new Quote(QuoteId: "Q-20250614-001", RFQId: "RFQ-20250614-001", Price: 189.15m),
+    new QuoteCancel(QuoteId: "Q-20250614-001", Reason: "MarketMoved")
+];
+
 foreach (var message in messages) await publisher.PublishAsync(message);
 
 
@@ -70,11 +72,11 @@ var listeningTask = Task.Run(async () =>
         var keyInfo = Console.ReadKey(intercept: true);
         if (keyInfo.Key == ConsoleKey.M)
         {
-            var manualMessage = new SystemMessage(Guid.CreateVersion7().ToString(), DateTime.UtcNow, "Manual System Message");
+            var manualMessage = new Quote(Guid.CreateVersion7().ToString(), "RFQ-20250614-001", 100M + (decimal)(Random.Shared.NextDouble() - 0.5) * 100M);
             try
             {
                 await publisher.PublishAsync(manualMessage);
-                Console.WriteLine($"[Info] Manual SystemMessage published (MessageId: {manualMessage.SourceSession}).");
+                Console.WriteLine($"[Info] Manual Quote published (MessageId: {manualMessage.QuoteId}).");
             }
             catch (Exception ex) { Console.Error.WriteLine($"[Error] Failed to publish manual message: {ex.Message}"); }
         }

@@ -13,7 +13,7 @@ public class MessageSerializationTests(ITestOutputHelper output)
     public void Should_serialize_TextMessage_polymorphically()
     {
         // Arrange
-        IMessage message = new TextMessage("session1", MessagePriority.High, "Hello");
+        IMessage message = new RFQRequest("123456", "VOD.L", 69M);
 
         // Act
         var json = JsonSerializer.Serialize(message, _options);
@@ -36,7 +36,8 @@ public class MessageSerializationTests(ITestOutputHelper output)
         }
     }
 
-    public static TheoryData<Type> MessageTypes => [typeof(TextMessage), typeof(ImageMessage), typeof(SystemMessage)];
+
+    public static TheoryData<Type> MessageTypes => [typeof(RFQRequest), typeof(Quote), typeof(QuoteCancel)];
 
     [Theory]
     [MemberData(nameof(MessageTypes))]

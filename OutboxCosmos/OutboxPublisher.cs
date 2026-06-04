@@ -11,7 +11,7 @@ public class OutboxPublisher(IOutboxRepository repository, IRoutingHandler routi
     {
         var targets = routingHandler.GetTargetsForMessage(message);
         var dispatchRequests = await repository.AddAsync(message, targets);
-
+        
         foreach (var dr in dispatchRequests) await channel.Writer.WriteAsync(dr); //can be skipped for testing recovery         
     }
 }

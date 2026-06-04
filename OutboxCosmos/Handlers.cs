@@ -3,58 +3,70 @@
 namespace OutboxCosmos;
 
 public interface IOutboxMessageHandler
-{
-    static virtual string HandlerName { get; } = "";
+{    
     string Name { get; }
 
     bool SupportRetry { get; }
     Task<Result> Publish(string id, IMessage message);
 }
 
-public class EmailHandler(ILogger<IOutboxMessageHandler> logger) : IOutboxMessageHandler
+/*public abstract class OutboxMessageHandler(string name, bool supportRetry=false) :    IOutboxMessageHandler,    IAsyncMessageVisitor
+{
+    public string Name { get; } = name;
+
+    public bool SupportRetry { get; } = supportRetry;
+    
+    public Task<Result> Publish(        string id,        IMessage message)
+    {
+        return message.Accept(this);
+    }
+
+    public virtual Task<Result> Visit(RFQRequest message)
+        => Unsupported(message);
+
+    public virtual Task<Result> Visit(Quote message)
+        => Unsupported(message);
+
+    public virtual Task<Result> Visit(QuoteCancel message)
+        => Unsupported(message);
+
+    protected Task<Result> Unsupported<TMessage>(TMessage message)
+        where TMessage : IMessage
+    {
+        var result = Result.Fail(
+            message:
+                $"Handler '{Name}' does not implement publishing for message type '{typeof(TMessage).Name}'.",
+            isRetryable: false,
+            id: CurrentMessageId);
+
+        return Task.FromResult(result);
+    }
+}*/
+
+public sealed class FixGatewayHandler : IOutboxMessageHandler
 {
     public string Name => HandlerName;
-    public static string HandlerName => "email";
+    public const string HandlerName = "FIX-GATEWAY";
 
-    public bool SupportRetry => true;
+    public bool SupportRetry => true; 
 
     public Task<Result> Publish(string id, IMessage message)
     {
-        if (Random.Shared.NextDouble() < 0.5)
-            return Task.FromResult(
-                Result.Fail("SMTP Server timed out (Simulated).", isRetryable: true, id: id)
-            );
-
-        logger.LogInformation("[EMAIL] Sent message {Id}: {Message}", id, message);
-
-        return Task.FromResult(Result.Ok("Email sent"));
+        Console.WriteLine($"[FIX-GATEWAY] Sending {id}: {message}");
+        return Task.FromResult(Result.Ok());
     }
 }
 
-public class SmsHandler(ILogger<IOutboxMessageHandler> logger) : IOutboxMessageHandler
+public sealed class AuditHandler : IOutboxMessageHandler
 {
     public string Name => HandlerName;
-    public static string HandlerName => "sms";
-    public bool SupportRetry => false;
+    public const string HandlerName = "AUDIT";
+
+    public bool SupportRetry => false; 
 
     public Task<Result> Publish(string id, IMessage message)
     {
-        logger.LogInformation("[SMS] Sent message {Id}: {Message}", id, message);
-
-        return Task.FromResult(Result.Ok("SMS sent"));
-    }
-}
-
-public class AuditHandler(ILogger<IOutboxMessageHandler> logger) : IOutboxMessageHandler
-{
-    public string Name => HandlerName;
-    public static string HandlerName => "audit";
-    public bool SupportRetry => false;
-
-    public Task<Result> Publish(string id, IMessage message)
-    {
-        logger.LogInformation("[AUDIT] Logged message {Id}: {Message}", id, message);
-
+        Console.WriteLine($"[AUDIT] Logging {id}: {message}");
         return Task.FromResult(Result.Ok());
     }
 }
@@ -62,7 +74,7 @@ public class AuditHandler(ILogger<IOutboxMessageHandler> logger) : IOutboxMessag
 public class NullHandler(ILogger<IOutboxMessageHandler> logger) : IOutboxMessageHandler
 {
     public string Name => HandlerName;
-    public static string HandlerName => "null";
+    public const string HandlerName = "null";
 
     public bool SupportRetry => false;
 

@@ -1,15 +1,28 @@
 ﻿namespace OutboxCosmos;
 
+public interface IMessage
+{
+    void Accept(IMessageVisitor visitor);
+    T Accept<T>(IMessageVisitor<T> visitor);
+}
 
-public interface IMessage { }
+public sealed record RFQRequest(string RFQId, string Symbol, decimal Quantity) : IMessage
+{
+    public void Accept(IMessageVisitor visitor) => visitor.Visit(this);
+    public T Accept<T>(IMessageVisitor<T> visitor) => visitor.Visit(this);
+}
 
-public enum MessagePriority { Low, Normal, High }
+public sealed record Quote(string QuoteId, string RFQId, decimal Price) : IMessage
+{
+    public void Accept(IMessageVisitor visitor) => visitor.Visit(this);
+    public T Accept<T>(IMessageVisitor<T> visitor) => visitor.Visit(this);
+}
 
-public abstract record BaseMessage(string SourceSession) : IMessage;
-
-public record TextMessage(string SourceSession, MessagePriority Priority = MessagePriority.Low, string Text = "") : BaseMessage(SourceSession);
-public record ImageMessage(string SourceSession, int Width, int Height, string Url = "") : BaseMessage(SourceSession);
-public record SystemMessage(string SourceSession, DateTime Timestamp, string Content = "") : BaseMessage(SourceSession);
+public sealed record QuoteCancel(string QuoteId, string Reason) : IMessage
+{
+    public void Accept(IMessageVisitor visitor) => visitor.Visit(this);
+    public T Accept<T>(IMessageVisitor<T> visitor) => visitor.Visit(this);
+}
 
 
 public record OutboxMessageTargetDocument(
