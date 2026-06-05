@@ -7,8 +7,8 @@ public abstract record Result
 
     public static Result Ok(string? text = null) => new Success(text);
 
-    public static Result Fail(string message, bool isRetryable = false, Exception? ex = null, string? id = null)
-        => new Failure(message, isRetryable, ex, id);
+    public static Result Fail(string message, bool isRetryable = false, Exception? exception = null, string? id = null)
+        => new Failure(message, isRetryable, exception, id);
 }
 
 public sealed record Success(string? Text = null) : Result

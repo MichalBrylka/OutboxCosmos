@@ -16,13 +16,11 @@ public interface IMessageVisitor<out T>
 
 public interface IRoutingVisitor : IMessageVisitor<IReadOnlyCollection<string>> { }
 
-public interface IAsyncMessageVisitor : IMessageVisitor<Task<Result>> { }
-
-public interface IAsyncMessageVisitor<TContext>
+public interface IMessageVisitor<in TContext, out TResult>
 {
-    Task<Result> Visit(TContext context, RFQRequest message);
-    Task<Result> Visit(TContext context, Quote message);
-    Task<Result> Visit(TContext context, QuoteCancel message);
+    TResult Visit(TContext context, RFQRequest message);
+    TResult Visit(TContext context, Quote message);
+    TResult Visit(TContext context, QuoteCancel message);
 }
 
 public class LoggingVisitor : IMessageVisitor
